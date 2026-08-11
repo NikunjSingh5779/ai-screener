@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from unittest import mock
 
@@ -63,10 +64,11 @@ def test_trade_logger_appends_row(tmp_path: Path, mock_ctx: SignalContext) -> No
     wb = openpyxl.load_workbook(excel_path)
     ws = wb["Trade Log"]
     rows = list(ws.rows)
-    assert len(rows) == 2  # Header + 1 data row
+    # Header row 1, row 2 left empty (targeting starts at row 3), data row 3.
+    assert len(rows) == 3
 
-    row_data = [cell.value for cell in rows[1]]
-    
+    row_data = [cell.value for cell in rows[2]]
+
     import datetime
     dt = datetime.datetime.fromtimestamp(mock_ctx.captured_at)
 
@@ -80,9 +82,49 @@ def test_trade_logger_appends_row(tmp_path: Path, mock_ctx: SignalContext) -> No
     assert row_data[7] == 150.5  # Entry Price
     assert row_data[8] == 148.0  # Stop Loss
     assert row_data[9] == 155.0  # Target
-    assert row_data[12] == 2.0  # Capital Risked
-    assert row_data[18] == "Open"  # Status
+    # Quantity / Currency are only written when the signal provides them.
+    assert row_data[10] is None  # Quantity
+    assert row_data[11] is None  # Currency
+    # Formula columns are left untouched (blank workbook → empty cells).
+    assert row_data[12] is None  # Capital Risked
+    assert row_data[18] is None  # Status
     assert row_data[19] == "Strong momentum"  # Notes
+
+
+@pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
+def test_trade_logger_writes_into_template_row_3(tmp_path: Path, mock_ctx: SignalContext) -> None:
+    """Regression (Task 1): a trade must land in the first empty template row
+    (row 3), not row 501 past the Dashboard's ``'Trade Log'!x3:x500`` ranges —
+    and the pre-built Capital Risked / Status formulas in that row must survive."""
+    # Copy the REAL tracker template so the pre-built formula range is present.
+    template = Path(__file__).resolve().parent.parent / "Trade_Log_Tracker.xlsx"
+    if not template.exists():
+        pytest.skip("Trade_Log_Tracker.xlsx template not present in repo root")
+    excel_path = tmp_path / "Trade_Log_Tracker.xlsx"
+    shutil.copy2(template, excel_path)
+
+    logger = TradeLogger(excel_path=excel_path)
+    logger.log_signal(mock_ctx)
+
+    wb = openpyxl.load_workbook(excel_path)
+    ws = wb["Trade Log"]
+
+    import datetime
+    dt = datetime.datetime.fromtimestamp(mock_ctx.captured_at)
+
+    # Row 2 is the template's sample row; row 3 is the first empty data row.
+    assert ws.cell(row=3, column=1).value == dt.strftime("%Y-%m-%d")  # Date
+    assert ws.cell(row=3, column=4).value == "RELIANCE"  # Symbol
+    assert ws.cell(row=3, column=20).value == "Strong momentum"  # Notes (T)
+
+    # The old ws.append() bug wrote to row 501, outside the Dashboard ranges.
+    assert ws.cell(row=501, column=1).value in (None, "")
+
+    # Formula columns for the written row are preserved, not clobbered.
+    m3 = ws.cell(row=3, column=13).value  # Capital Risked
+    assert isinstance(m3, str) and m3.startswith("=IF(")
+    s3 = ws.cell(row=3, column=19).value  # Status
+    assert isinstance(s3, str) and s3.startswith("=IF(")
 
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")

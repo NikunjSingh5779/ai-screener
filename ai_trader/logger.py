@@ -14,6 +14,14 @@ from ai_trader.signal import SignalContext
 
 logger = logging.getLogger(__name__)
 
+# The tracker template pre-builds formulas in rows 3-500 (Capital Risked, P&L,
+# P&L %, R Multiple, Status) that the Dashboard reads via ``'Trade Log'!x3:x500``.
+# New trades must land in the first empty row within that range: ``ws.append()``
+# would write past it (row 501), outside every Dashboard formula, and the trade
+# would never show up there.
+_TEMPLATE_FIRST_ROW = 3
+_TEMPLATE_LAST_ROW = 500
+
 class LoggerError(RuntimeError):
     """Failed to log the trade (e.g. file is open/locked by another process)."""
 
@@ -52,37 +60,57 @@ class TradeLogger:
         dt = datetime.fromtimestamp(ctx.captured_at)
         signal = ctx.signal
 
-        # Map to headers: ['Date', 'Time', 'Market', 'Symbol', 'Direction', 'Signal Source', 
-        # 'AI Confidence %', 'Entry Price', 'Stop Loss', 'Target', 'Quantity', 'Currency', 
-        # 'Capital Risked', 'Exit Price', 'Exit Time', 'P&L', 'P&L %', 'R Multiple', 'Status', 'Notes']
-        
-        row_data = [
-            dt.strftime("%Y-%m-%d"),          # Date
-            dt.strftime("%H:%M:%S"),          # Time
-            signal.market,                    # Market
-            ctx.symbol,                       # Symbol
-            signal.action.upper(),            # Direction
-            ctx.model,                        # Signal Source
-            signal.confidence,                # AI Confidence %
-            signal.entry,                     # Entry Price
-            signal.stop_loss,                 # Stop Loss
-            signal.target,                    # Target
-            None,                             # Quantity
-            None,                             # Currency
-            signal.position_size_pct,         # Capital Risked (using position size)
-            None,                             # Exit Price
-            None,                             # Exit Time
-            None,                             # P&L
-            None,                             # P&L %
-            None,                             # R Multiple
-            "Open",                           # Status
-            signal.reasoning                  # Notes
-        ]
+        # Write only the input columns (A-J) plus Notes (T). Columns M (Capital
+        # Risked), P (P&L), Q (P&L %), R (R Multiple) and S (Status) hold
+        # pre-built formulas in the template; overwriting them would break the
+        # tracker, so they are never written here. ``position_size_pct`` has no
+        # column yet and is intentionally omitted until one exists.
+        values = {
+            1: dt.strftime("%Y-%m-%d"),   # Date
+            2: dt.strftime("%H:%M:%S"),   # Time
+            3: signal.market,             # Market
+            4: ctx.symbol,                # Symbol
+            5: signal.action.upper(),     # Direction
+            6: ctx.model,                 # Signal Source
+            7: signal.confidence,         # AI Confidence %
+            8: signal.entry,              # Entry Price
+            9: signal.stop_loss,          # Stop Loss
+            10: signal.target,            # Target
+            20: signal.reasoning,         # Notes
+        }
+        # Quantity (K) and Currency (L) are written only when the signal
+        # actually provides them (the schema does not today).
+        for field, column in (("quantity", 11), ("currency", 12)):
+            real_value = getattr(signal, field, None)
+            if real_value is not None:
+                values[column] = real_value
 
         try:
-            ws.append(row_data)
+            target_row = self._first_empty_row(ws)
+            for column, value in values.items():
+                if value is not None:
+                    ws.cell(row=target_row, column=column, value=value)
             wb.save(self.excel_path)
+        except LoggerError:
+            raise
         except Exception as exc:
             raise LoggerError(f"Failed to save workbook (is it open in Excel?): {exc}") from exc
 
         logger.info("Trade logged to %s for %s (%s)", self.excel_path.name, ctx.symbol, signal.action)
+
+    @staticmethod
+    def _first_empty_row(ws) -> int:
+        """First data row (from row 3 down) whose Date column is empty.
+
+        Rows 3-500 carry the template's pre-built formulas and the Dashboard
+        only reads within that range, so new trades must reuse one of those
+        rows rather than append past the range.
+
+        Raises:
+            LoggerError: if every template row already contains data.
+        """
+        last_row = max(ws.max_row, _TEMPLATE_LAST_ROW)
+        for row in range(_TEMPLATE_FIRST_ROW, last_row + 1):
+            if ws.cell(row=row, column=1).value in (None, ""):
+                return row
+        raise LoggerError(f"Tracker is full: rows {_TEMPLATE_FIRST_ROW}-{last_row} all contain data")
