@@ -11,3 +11,8 @@ config.toml
 # OS
 Thumbs.db
 .DS_Store
+
+# Stray test-run artifacts
+collect_check.txt
+collect_summary.txt
+pytest_output.txt
