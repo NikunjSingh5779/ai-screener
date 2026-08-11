@@ -34,7 +34,28 @@ DEFAULTS: dict = {
             "ollama": "moondream",
         },
     },
-    "signal": {"market": "NSE", "symbol_hint": ""},
+    "signal": {
+        "market": "NSE",
+        "symbol_hint": "",
+        "market_notes": {
+            "NSE": (
+                "NSE cash market. Currency INR. Typical hours 09:15-15:30 IST. "
+                "Do not assume F&O lot sizes on a cash-market chart."
+            ),
+            "BSE": (
+                "BSE cash market. Currency INR. Typical hours 09:15-15:30 IST. "
+                "Do not assume F&O lot sizes on a cash-market chart."
+            ),
+            "US": (
+                "US equities. Currency USD ($). Typical hours 09:30-16:00 ET; "
+                "be mindful of extended-hours session context."
+            ),
+            "Crypto": (
+                "Cryptocurrency trades 24/7 - ignore session-hours reasoning. "
+                "High volatility. Advisory only."
+            ),
+        },
+    },
     "logging": {
         "hotkey": "f9",
         "excel_path": "Trade_Log_Tracker.xlsx",
@@ -85,6 +106,7 @@ class Config:
     model_ollama: str
     market: str
     symbol_hint: str
+    market_notes: dict[str, str]
     log_hotkey: str
     excel_path: str
 
@@ -154,6 +176,7 @@ def load_config(path: str | Path | None = None) -> Config:
         model_ollama=str(models["ollama"]),
         market=str(data["signal"]["market"]),
         symbol_hint=str(data["signal"]["symbol_hint"]),
+        market_notes=dict(data["signal"].get("market_notes", {})),
         log_hotkey=str(data["logging"]["hotkey"]),
         excel_path=str(data["logging"]["excel_path"]),
     )

@@ -38,6 +38,7 @@ def build_pipeline(cfg):
     engine = SignalEngine(
         market=cfg.market,
         symbol_hint=cfg.symbol_hint,
+        market_notes=cfg.market_notes,
         min_flip_hold_seconds=cfg.min_flip_hold_seconds,
     )
     return client, engine

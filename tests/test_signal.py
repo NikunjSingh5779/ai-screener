@@ -133,3 +133,42 @@ def test_flip_guard_ignores_hold() -> None:
     engine = SignalEngine(min_flip_hold_seconds=60)
     hold = TradingSignal(action="hold", confidence=40)
     assert engine.guard_flip("X", hold, now=100.0) is True
+
+
+# --- Task 1: per-market prompt tuning -----------------------------------------
+
+MARKET_NOTES = {
+    "NSE": "NSE cash market. Currency INR. Typical hours 09:15-15:30 IST.",
+    "US": (
+        "US equities. Currency USD ($). Typical hours 09:30-16:00 ET; "
+        "be mindful of extended-hours session context."
+    ),
+}
+
+
+def test_build_prompt_injects_selected_market_note() -> None:
+    engine = SignalEngine(market="NSE", market_notes=MARKET_NOTES)
+    prompt = engine.build_prompt()
+    assert "NSE cash market. Currency INR." in prompt
+    assert "US equities." not in prompt
+
+
+def test_build_prompt_other_market_gets_its_own_note() -> None:
+    engine = SignalEngine(market="US", market_notes=MARKET_NOTES)
+    prompt = engine.build_prompt()
+    assert "US equities." in prompt
+    assert "NSE cash market." not in prompt
+
+
+def test_build_prompt_unknown_market_renders_cleanly() -> None:
+    engine = SignalEngine(market="Futures", market_notes=MARKET_NOTES)
+    prompt = engine.build_prompt()
+    assert "Market notes:" in prompt
+    assert "{market_notes}" not in prompt
+
+
+def test_build_prompt_without_market_notes_renders_cleanly() -> None:
+    engine = SignalEngine(market="NSE")
+    prompt = engine.build_prompt()
+    assert "Market notes:" in prompt
+    assert "{market_notes}" not in prompt

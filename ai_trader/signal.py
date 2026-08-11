@@ -44,7 +44,9 @@ Guidelines:
 - "confidence" reflects how clearly the setup reads; prefer honest mid values.
 - Advisory only — never imply order execution.
 
-Market hint: {market}. Symbol hint: {symbol_hint}."""
+Market hint: {market}. Symbol hint: {symbol_hint}.
+
+Market notes: {market_notes}"""
 
 
 def _coerce_price(v: object) -> object:
@@ -162,11 +164,13 @@ class SignalEngine:
         self,
         market: str = "NSE",
         symbol_hint: str = "",
+        market_notes: dict[str, str] | None = None,
         min_flip_hold_seconds: float = 60.0,
         prompt_template: str = DEFAULT_PROMPT_TEMPLATE,
     ) -> None:
         self.market = market
         self.symbol_hint = symbol_hint
+        self.market_notes = market_notes or {}
         self.min_flip_hold_seconds = min_flip_hold_seconds
         self.prompt_template = prompt_template
         # symbol -> (last directional action, wall-clock time it was seen)
@@ -176,6 +180,7 @@ class SignalEngine:
         return self.prompt_template.format(
             market=self.market,
             symbol_hint=(symbol_hint or self.symbol_hint) or "unknown",
+            market_notes=self.market_notes.get(self.market, ""),
         )
 
     @staticmethod
