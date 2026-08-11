@@ -7,6 +7,7 @@ mutable :class:`Config` dataclass.
 
 from __future__ import annotations
 
+import copy
 import os
 import tomllib
 from dataclasses import dataclass, replace
@@ -89,7 +90,9 @@ class Config:
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    out = dict(base)
+    # Deep-copy the base so nested dicts are independent of the caller's data —
+    # otherwise later env overrides mutate the shared module-level DEFAULTS.
+    out = copy.deepcopy(base)
     for key, value in override.items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = _deep_merge(out[key], value)
