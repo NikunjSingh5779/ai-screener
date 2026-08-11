@@ -1,0 +1,60 @@
+﻿"""Phase 1 MVP â€” CLI signal reader.
+
+A global hotkey (default F8) captures the configured screen region, sends it
+through the vision-LLM fallback chain, and prints the structured signal to the
+console. Falls back to an interactive "press Enter" loop if the global hook is
+unavailable (e.g. admin rights) or the ``keyboard`` package cannot hook.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+import time
+
+from ai_trader.capture import grab_region, image_to_base64_png
+from ai_trader.config import load_config, with_region
+from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
+from ai_trader.rate_guard import RateGuard
+from ai_trader.signal import SignalEngine
+
+
+def build_pipeline(cfg):
+    guard = RateGuard(calls_per_minute=cfg.calls_per_minute, min_interval_seconds=cfg.min_interval_seconds)
+    client = VisionClient(
+        providers=make_provider_chain(cfg),
+        guard=guard,
+        cooldown_seconds=cfg.cooldown_seconds,
+    )
+    engine = SignalEngine(
+        market=cfg.market,
+        symbol_hint=cfg.symbol_hint,
+        min_flip_hold_seconds=cfg.min_flip_hold_seconds,
+    )
+    return client, engine
+
+
+def do_read(cfg, client, engine) -> None:
+    """Capture once and print the resulting signal (or the error)."""
+    started = time.monotonic()
+    try:
+        image = grab_region(cfg.region)
+        image_b64 = image_to_base64_png(image)
+        prompt = engine.build_prompt()
+        result = client.analyze(image_b64, "image/png", prompt)
+        signal = engine.parse(result.text)
+        elapsed = time.monotonic() - started
+        # Suppress a buy/sell flip that happened too fast (plan Â§6: no flip on
+        # ordinary chart noise). Hold/watch passes are never suppressed.
+        if not engine.guard_flip(signal.symbol, signal):
+            print("\n--- FLIP SUPPRESSED ---")
+            print(f"{signal.symbol or 'symbol'}: {signal.action} within the "
+                  f"hold window ({engine.min_flip_hold_seconds:.0f}s) â€” keeping the previous call.")
+            return
+        print("\n--- SIGNAL ---")
+        print(json.dumps(signal.model_dump(), indent=2))
+        print(f"provider/model: {result.model}   ({elapsed:.1f}s)")
+    except (ProviderError, ValueError) as exc:
+        print(f"\n[error] {exc}", file=sys.stderr)

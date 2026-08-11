@@ -1,0 +1,8 @@
+COMPILE: ok
+IMPORT: ok
+has ReadResult: True
+has read_signal: True
+has run_overlay lazy: True
+ReadResult defaults ctx=None err=None flip=False
+ReadResult.to_view() -> None
+overlay_without_pyqt6: rc=1 stderr_has_pyqt6=True

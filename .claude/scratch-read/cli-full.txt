@@ -1,0 +1,130 @@
+﻿"""Phase 1 MVP â€” CLI signal reader.
+
+A global hotkey (default F8) captures the configured screen region, sends it
+through the vision-LLM fallback chain, and prints the structured signal to the
+console. Falls back to an interactive "press Enter" loop if the global hook is
+unavailable (e.g. admin rights) or the ``keyboard`` package cannot hook.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import sys
+import time
+
+from ai_trader.capture import grab_region, image_to_base64_png
+from ai_trader.config import load_config, with_region
+from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
+from ai_trader.rate_guard import RateGuard
+from ai_trader.signal import SignalEngine
+
+
+def build_pipeline(cfg):
+    guard = RateGuard(calls_per_minute=cfg.calls_per_minute, min_interval_seconds=cfg.min_interval_seconds)
+    client = VisionClient(
+        providers=make_provider_chain(cfg),
+        guard=guard,
+        cooldown_seconds=cfg.cooldown_seconds,
+    )
+    engine = SignalEngine(
+        market=cfg.market,
+        symbol_hint=cfg.symbol_hint,
+        min_flip_hold_seconds=cfg.min_flip_hold_seconds,
+    )
+    return client, engine
+
+
+def do_read(cfg, client, engine) -> None:
+    """Capture once and print the resulting signal (or the error)."""
+    started = time.monotonic()
+    try:
+        image = grab_region(cfg.region)
+        image_b64 = image_to_base64_png(image)
+        prompt = engine.build_prompt()
+        result = client.analyze(image_b64, "image/png", prompt)
+        signal = engine.parse(result.text)
+        elapsed = time.monotonic() - started
+        # Suppress a buy/sell flip that happened too fast (plan Â§6: no flip on
+        # ordinary chart noise). Hold/watch passes are never suppressed.
+        if not engine.guard_flip(signal.symbol, signal):
+            print("\n--- FLIP SUPPRESSED ---")
+            print(f"{signal.symbol or 'symbol'}: {signal.action} within the "
+                  f"hold window ({engine.min_flip_hold_seconds:.0f}s) â€” keeping the previous call.")
+            return
+        print("\n--- SIGNAL ---")
+        print(json.dumps(signal.model_dump(), indent=2))
+        print(f"provider/model: {result.model}   ({elapsed:.1f}s)")
+    except (ProviderError, ValueError) as exc:
+        print(f"\n[error] {exc}", file=sys.stderr)
+    except Exception as exc:  # capture or unexpected failures
+        print(f"\n[error] {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def parse_region(value: str):
+    left, top, width, height = (int(part) for part in value.split(","))
+    return left, top, width, height
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="ai-trader",
+        description="AI Trader â€” MVP signal reader (Phase 1). Advisory only; never executes trades.",
+    )
+    parser.add_argument("--config", default=None, help="path to config.toml")
+    parser.add_argument("--hotkey", default="f8", help="global hotkey to trigger a read (default: f8)")
+    parser.add_argument("--once", action="store_true", help="take a single read and exit")
+    parser.add_argument(
+        "--region",
+        default=None,
+        help="override capture region as left,top,width,height (e.g. 100,50,900,600)",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_arg_parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    cfg = load_config(args.config)
+    if args.region:
+        cfg = with_region(cfg, *parse_region(args.region))
+
+    client, engine = build_pipeline(cfg)
+
+    if args.once:
+        do_read(cfg, client, engine)
+        client.close()
+        return 0
+
+    # Prefer a global hotkey; degrade gracefully to an interactive loop.
+    try:
+        import keyboard
+    except ImportError:
+        keyboard = None
+
+    if keyboard is not None:
+        try:
+            keyboard.add_hotkey(args.hotkey, lambda: do_read(cfg, client, engine))
+            print(f"AI Trader ready. Press {args.hotkey.upper()} to read the screen region. Ctrl+C to exit.")
+            keyboard.wait()
+            return 0
+        except Exception as exc:
+            print(f"global hotkey unavailable ({exc}); falling back to interactive loop")
+            keyboard = None
+
+    print("AI Trader ready. Press Enter to read the screen region. Ctrl+C to exit.")
+    try:
+        while True:
+            input()
+            do_read(cfg, client, engine)
+    except (KeyboardInterrupt, EOFError):
+        pass
+    finally:
+        client.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

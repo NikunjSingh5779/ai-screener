@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Config — real keys live in config.toml, never committed
+config.toml
+
+# OS
+Thumbs.db
+.DS_Store

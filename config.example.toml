@@ -1,0 +1,43 @@
+# AI Trader configuration — copy this file to config.toml and edit.
+# Every value below is a default; environment variables override the important ones
+# (AI_TRADER_REGION, AI_TRADER_PROVIDERS, AI_TRADER_INTERVAL, AI_TRADER_MARKET,
+#  AI_TRADER_OPENROUTER_MODEL).
+
+[capture]
+# Screen region to watch, in pixels relative to the primary monitor's top-left.
+# Set this to your trading platform window so we never capture the full desktop.
+region = { left = 0, top = 0, width = 1280, height = 720 }
+monitor = 1
+
+[polling]
+# Minimum seconds between reads (near-real-time, not tick-by-tick — plan §1).
+interval_seconds = 10
+# A buy/sell signal cannot flip direction within this window (plan §6).
+min_flip_hold_seconds = 60
+
+[providers]
+# Ordered fallback chain. Ollama runs locally (no API key, no rate limits).
+# If Ollama isn't running, falls forward to openrouter, then noop (offline mock).
+chain = ["ollama", "openrouter", "anthropic", "noop"]
+# Skip a provider for this long after a throttle/error before trying it again.
+cooldown_seconds = 30
+
+[providers.budget]
+# Per-provider call budget so continuous polling survives a full session (plan §2.2).
+calls_per_minute = 6
+min_interval_seconds = 8
+
+[providers.models]
+# Free vision models — verified live on openrouter.ai/api/v1/models (2026-08-10).
+# gemma-4-31b: best general vision read. nemotron-nano-12b-v2-vl: faster, vision-native.
+# Override with env AI_TRADER_OPENROUTER_MODEL to compare without editing files.
+openrouter = "google/gemma-4-31b-it:free"
+anthropic = "claude-sonnet-5"
+# Local model via Ollama — install from ollama.com, then: ollama pull moondream
+# Override with env AI_TRADER_OLLAMA_MODEL.
+ollama = "moondream"
+
+[signal]
+# Defaults/labels for signals; the model may infer symbol/market from the chart.
+market = "NSE"
+symbol_hint = ""

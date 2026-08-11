@@ -1,0 +1,13 @@
+{
+  "vault": "C:\\Users\\ASUS\\OneDrive\\Desktop\\AI-OS obsidian",
+  "version": "1.0",
+  "linked_at": "2026-08-10",
+  "resources": {
+    "agents": true,
+    "skills": true,
+    "prompts": true,
+    "wiki": true,
+    "profile": true
+  },
+  "auto_sync": true
+}

@@ -1,0 +1,9 @@
+REQ has PyQt6: True
+REQ header 0/2: True
+INIT version 0.2.0: True
+INIT docstring 0/2: True
+README title 0/2: True
+README current build: True
+README overlay cmd: True
+README age text: True
+README auto-skip: True

@@ -1,0 +1,7 @@
+len: 5456
+has _ctx: True
+has format tests: True
+has SignalView tests: True
+has offscreen smoke: True
+has importorskip: True
+last_line:     app.processEvents()

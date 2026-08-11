@@ -1,0 +1,26 @@
+..................F.........................                             [100%]
+================================== FAILURES ===================================
+________________ test_overlay_window_renders_signal_offscreen _________________
+
+    def test_overlay_window_renders_signal_offscreen() -> None:
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        QtWidgets = pytest.importorskip("PyQt6.QtWidgets")
+        from ai_trader.overlay_ui import OverlayWindow
+    
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        win = OverlayWindow()
+        win.show_signal(SignalView.from_context(_ctx()))
+        snapshot = win.snapshot()
+        assert snapshot["action"] == "BUY"
+        assert "RELIANCE" in snapshot["symbol_market"]
+        assert snapshot["confidence"] == "72%"
+>       assert snapshot["entry"] == "245.5"
+E       AssertionError: assert 'ENTRY 245.5' == '245.5'
+E         
+E         - 245.5
+E         + ENTRY 245.5
+
+tests\test_overlay.py:141: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_overlay.py::test_overlay_window_renders_signal_offscreen - ...
+1 failed, 43 passed in 0.58s
