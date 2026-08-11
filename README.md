@@ -62,9 +62,14 @@ provider/model served each signal so quality changes stay traceable.
 
 | Provider | Key | Cost | Notes |
 |---|---|---|---|
+| `ollama` | — | $0 | Local; attempted **first** by default (needs `ollama serve` + a vision model, e.g. `ollama pull moondream`) |
 | `noop` | — | $0 | Deterministic mock; default when no key is set |
 | `openrouter` | `OPENROUTER_API_KEY` | $0 | Free vision models; `max_price=0` hard bound so a paid model can never be charged |
 | `anthropic` | `ANTHROPIC_API_KEY` | paid | Via Messages API (vision image blocks) |
+
+The first provider in the chain is `ollama` by default (run `ollama serve` locally and
+`ollama pull moondream` for a free, offline vision model); the chain falls back to the
+API providers in order when one is missing or fails.
 
 Models are editable in `config.toml` → `[providers.models]`.
 
