@@ -1,0 +1,11 @@
+WARNING ai_trader.providers: full-screen capture is local-only; skipping cloud provider: openrouter
+WARNING ai_trader.providers: full-screen capture is local-only; skipping cloud provider: anthropic
+INFO httpx: HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+capturing full screen (monitor 1)
+frame (2560, 1600), digest 7a0e1d6d7379a809
+
+===== ollama =====
+model: ollama/qwen2.5vl:3b
+--- raw output ---
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+EXIT=0

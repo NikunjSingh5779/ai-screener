@@ -35,7 +35,7 @@ class FakeClient:
 
 def test_watch_mode_skips_unchanged_frames_after_a_success(monkeypatch) -> None:
     image = Image.new("RGB", (32, 32), "black")
-    monkeypatch.setattr("ai_trader.cli.grab_screen", lambda cfg: image)
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
     cfg = load_config()
     client = FakeClient()
     gate = FrameGate()
@@ -51,7 +51,7 @@ def test_watch_mode_skips_unchanged_frames_after_a_success(monkeypatch) -> None:
 
 def test_manual_read_still_analyzes_an_unchanged_frame(monkeypatch) -> None:
     image = Image.new("RGB", (32, 32), "black")
-    monkeypatch.setattr("ai_trader.cli.grab_screen", lambda cfg: image)
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
     cfg = load_config()
     client = FakeClient()
     gate = FrameGate()
@@ -76,7 +76,7 @@ def test_watch_flag_parses_without_overlay() -> None:
 
 def test_watch_loop_skips_unchanged_frames(monkeypatch) -> None:
     image = Image.new("RGB", (32, 32), "black")
-    monkeypatch.setattr("ai_trader.cli.grab_screen", lambda cfg: image)
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
     cfg = load_config()
     client = FakeClient()
     engine = SignalEngine()
@@ -93,7 +93,7 @@ def test_watch_loop_skips_unchanged_frames(monkeypatch) -> None:
 
 def test_watch_loop_respects_max_iterations(monkeypatch) -> None:
     image = Image.new("RGB", (32, 32), "black")
-    monkeypatch.setattr("ai_trader.cli.grab_screen", lambda cfg: image)
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
     cfg = load_config()
     client = FakeClient()
     engine = SignalEngine()

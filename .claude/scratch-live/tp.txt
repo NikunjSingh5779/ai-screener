@@ -3,7 +3,6 @@ httpx.MockTransport, no network), and the fallback-chain behavior."""
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
 import httpx
@@ -16,7 +15,6 @@ from ai_trader.providers import (
     ProviderError,
     ProviderResult,
     VisionClient,
-    make_provider_chain,
 )
 from ai_trader.rate_guard import RateGuard
 
@@ -199,14 +197,3 @@ def test_rotation_falls_forward_to_the_next_provider() -> None:
     result = client.analyze(PNG, "image/png", "prompt")
     assert result.model == "a/model"
     assert a.calls == 1
-
-
-def test_make_provider_chain_full_screen_is_local_only() -> None:
-    from ai_trader.config import load_config
-
-    cfg = dataclasses.replace(load_config("does-not-exist.toml"), full_screen=True)
-    names = [p.name for p in make_provider_chain(cfg)]
-    assert "ollama" in names
-    assert "noop" in names
-    assert "openrouter" not in names
-    assert "anthropic" not in names

@@ -1,3 +1,5 @@
+=== config.py ===
+---
 """Configuration loading for AI Trader.
 
 Loads ``config.toml`` (if present) via stdlib ``tomllib``, then applies
@@ -17,7 +19,6 @@ DEFAULTS: dict = {
     "capture": {
         "region": {"left": 0, "top": 0, "width": 1280, "height": 720},
         "monitor": 1,
-        "full_screen": False,
     },
     "polling": {
         "interval_seconds": 10,
@@ -47,7 +48,6 @@ _ENV_OVERRIDES = {
     "AI_TRADER_PROVIDERS": ("providers", "chain"),
     "AI_TRADER_COOLDOWN": ("providers", "cooldown_seconds"),
     "AI_TRADER_FLIP_HOLD": ("polling", "min_flip_hold_seconds"),
-    "AI_TRADER_FULL_SCREEN": ("capture", "full_screen"),
     "AI_TRADER_LOG_HOTKEY": ("logging", "hotkey"),
     "AI_TRADER_EXCEL_PATH": ("logging", "excel_path"),
 }
@@ -72,7 +72,6 @@ class Region:
 class Config:
     region: Region
     monitor: int
-    full_screen: bool
     interval_seconds: float
     min_flip_hold_seconds: float
     provider_chain: list[str]
@@ -105,8 +104,6 @@ def _apply_env_overrides(data: dict) -> dict:
             continue
         if key == "chain":
             data[section][key] = [p.strip() for p in value.split(",") if p.strip()]
-        elif key == "full_screen":
-            data[section][key] = value.strip().lower() in ("1", "true", "yes", "on")
         elif key in ("interval_seconds", "min_flip_hold_seconds", "cooldown_seconds"):
             data[section][key] = float(value)
         else:
@@ -139,7 +136,6 @@ def load_config(path: str | Path | None = None) -> Config:
             width=region["width"], height=region["height"],
         ),
         monitor=data["capture"]["monitor"],
-        full_screen=bool(data["capture"]["full_screen"]),
         interval_seconds=float(data["polling"]["interval_seconds"]),
         min_flip_hold_seconds=float(data["polling"]["min_flip_hold_seconds"]),
         provider_chain=list(data["providers"]["chain"]),
@@ -159,3 +155,97 @@ def load_config(path: str | Path | None = None) -> Config:
 def with_region(cfg: Config, left: int, top: int, width: int, height: int) -> Config:
     """Return a copy of ``cfg`` with a new capture region (immutable pattern)."""
     return replace(cfg, region=Region(left=left, top=top, width=width, height=height))
+
+=== capture.py ===
+"""Screen Capture Module — region-limited screen grab.
+
+Uses ``mss`` (fast, native) to capture only the configured screen region, never
+the full desktop (plan §2.1). Returns a PIL Image plus a cheap digest for future
+frame-diffing (Phase 3).
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import io
+import threading
+
+from PIL import Image
+
+from ai_trader.config import Config, Region
+
+
+class CaptureError(RuntimeError):
+    """Screen capture failed (bad region, no display, driver issue)."""
+
+
+def grab_region(region: Region) -> Image.Image:
+    """Capture the configured screen region as a PIL RGB image.
+
+    Raises:
+        CaptureError: if the capture backend fails for any reason.
+    """
+    if not region.nonzero:
+        raise CaptureError(f"invalid capture region (must have positive size): {region}")
+    try:
+        import mss
+    except ImportError as exc:  # pragma: no cover - dependency missing
+        raise CaptureError("mss is not installed (pip install -r requirements.txt)") from exc
+
+    try:
+        with mss.mss() as sct:
+            shot = sct.grab(region.as_mss())
+            image = Image.frombytes("RGB", shot.size, shot.rgb)
+    except Exception as exc:
+        raise CaptureError(f"screen capture failed: {exc}") from exc
+    return image
+
+
+def image_to_base64_png(image: Image.Image) -> str:
+    """Encode a PIL image as a base64 PNG string for vision-API payloads."""
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+
+def frame_digest(image: Image.Image) -> str:
+    """Cheap, stable digest for frame-diffing.
+
+    Downscale to a 16x16 grayscale thumbnail and hash its bytes. Good enough to
+    skip unchanged frames before spending an API call (plan §3 / §6).
+    """
+    thumb = image.convert("L").resize((16, 16))
+    return hashlib.sha256(thumb.tobytes()).hexdigest()[:16]
+
+
+class FrameGate:
+    """Tracks the last successfully analyzed frame for polling deduplication.
+
+    An unchanged frame is skipped before it is encoded or sent to a provider.
+    Failed reads are deliberately not recorded, so the next polling cycle retries
+    rather than silently preserving an error state.
+    """
+
+    def __init__(self) -> None:
+        self._last_processed: str | None = None
+        self._lock = threading.Lock()
+
+    def is_new(self, digest: str) -> bool:
+        """Return whether ``digest`` differs from the last successful read."""
+        with self._lock:
+            return digest != self._last_processed
+
+    def mark_processed(self, digest: str) -> None:
+        """Record a frame only after its signal was parsed successfully."""
+        with self._lock:
+            self._last_processed = digest
+
+=== tests glob ===
+tests\test_capture.py
+tests\test_cli.py
+tests\test_logger.py
+tests\test_overlay.py
+tests\test_providers.py
+tests\test_rate_guard.py
+tests\test_signal.py

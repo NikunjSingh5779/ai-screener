@@ -20,7 +20,7 @@ from pathlib import Path
 # Allow running as a loose script (scripts/validate_provider.py) without install.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ai_trader.capture import frame_digest, grab_region, image_to_base64_png  # noqa: E402
+from ai_trader.capture import frame_digest, grab_screen, image_to_base64_png  # noqa: E402
 from ai_trader.config import load_config, with_region  # noqa: E402
 from ai_trader.providers import make_provider_chain  # noqa: E402
 from ai_trader.signal import SignalEngine  # noqa: E402
@@ -46,8 +46,11 @@ def main(argv: list[str] | None = None) -> int:
         left, top, width, height = (int(part) for part in args.region.split(","))
         cfg = with_region(cfg, left, top, width, height)
 
-    print(f"capturing region {cfg.region}")
-    image = grab_region(cfg.region)
+    if cfg.full_screen:
+        print(f"capturing full screen (monitor {cfg.monitor})")
+    else:
+        print(f"capturing region {cfg.region}")
+    image = grab_screen(cfg)
     print(f"frame {image.size}, digest {frame_digest(image)}")
     image_b64 = image_to_base64_png(image)
 

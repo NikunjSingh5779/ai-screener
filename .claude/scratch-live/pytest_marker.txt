@@ -1,0 +1,2 @@
+rc=0
+66 passed, 2 skipped in 0.38s

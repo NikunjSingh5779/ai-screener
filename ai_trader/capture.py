@@ -1,8 +1,9 @@
-"""Screen Capture Module — region-limited screen grab.
+"""Screen Capture Module — region-limited or full-screen grab.
 
-Uses ``mss`` (fast, native) to capture only the configured screen region, never
-the full desktop (plan §2.1). Returns a PIL Image plus a cheap digest for future
-frame-diffing (Phase 3).
+Uses ``mss`` (fast, native). By default captures only the configured screen
+region (plan §2.1); with ``cfg.full_screen`` it captures an entire monitor at
+runtime, resolution-independent. Returns a PIL Image plus a cheap digest for
+future frame-diffing (Phase 3).
 """
 
 from __future__ import annotations
@@ -41,6 +42,48 @@ def grab_region(region: Region) -> Image.Image:
     except Exception as exc:
         raise CaptureError(f"screen capture failed: {exc}") from exc
     return image
+
+
+def monitor_bounds(monitor: int) -> Region:
+    """Resolve an mss monitor index to its bounding :class:`Region` at runtime.
+
+    ``1`` is the primary monitor. Raises :class:`CaptureError` if the index is
+    out of range. Full-screen mode queries the bounds fresh each call, so a
+    resolution or layout change never breaks the capture.
+    """
+    try:
+        import mss
+    except ImportError as exc:  # pragma: no cover - dependency missing
+        raise CaptureError("mss is not installed (pip install -r requirements.txt)") from exc
+    try:
+        with mss.mss() as sct:
+            monitors = sct.monitors
+            if monitor < 1 or monitor >= len(monitors):
+                raise CaptureError(
+                    f"monitor {monitor} not found (mss reports {len(monitors) - 1} monitor(s))"
+                )
+            bounds = monitors[monitor]
+    except CaptureError:
+        raise
+    except Exception as exc:
+        raise CaptureError(f"could not read monitor {monitor}: {exc}") from exc
+    return Region(
+        left=bounds["left"], top=bounds["top"],
+        width=bounds["width"], height=bounds["height"],
+    )
+
+
+def grab_monitor(monitor: int) -> Image.Image:
+    """Capture an entire monitor (the full screen) as a PIL RGB image."""
+    return grab_region(monitor_bounds(monitor))
+
+
+def grab_screen(cfg: Config) -> Image.Image:
+    """Capture a frame per config: the full monitor when ``cfg.full_screen``,
+    otherwise the fixed ``cfg.region`` (plan §2.1)."""
+    if cfg.full_screen:
+        return grab_monitor(cfg.monitor)
+    return grab_region(cfg.region)
 
 
 def image_to_base64_png(image: Image.Image) -> str:

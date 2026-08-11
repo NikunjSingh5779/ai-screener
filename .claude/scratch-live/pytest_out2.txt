@@ -1,0 +1,5 @@
+..................ss................................................     [100%]
+66 passed, 2 skipped in 0.38s
+C:\Users\ASUS\AppData\Roaming\Python\Python314\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.7.0) or chardet (7.4.3)/charset_normalizer (3.4.7) doesn't match a supported version!
+  warnings.warn(
+EXIT=0

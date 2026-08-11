@@ -1,3 +1,5 @@
+===== ai_trader/providers.py =====
+---
 """Vision LLM Layer — provider-agnostic backends with an ordered fallback chain.
 
 Backends (plan §2.3):
@@ -306,26 +308,15 @@ def _base_models() -> dict[str, type]:
     }
 
 
-_CLOUD_PROVIDERS = frozenset({"openrouter", "anthropic"})
-
-
 def make_provider_chain(cfg: Config) -> list[Provider]:
     """Build provider backends in config order, always guaranteeing a ``noop``
-    last resort so the chain never has zero backends (offline-safe).
-
-    Full-screen capture is local-only: when ``cfg.full_screen`` is set, cloud
-    providers (openrouter, anthropic) are skipped so a full-desktop frame can
-    never leave the machine (plan §2.1 privacy guard).
-    """
+    last resort so the chain never has zero backends (offline-safe)."""
     registry = _base_models()
     built: list[Provider] = []
     for name in cfg.provider_chain:
         cls = registry.get(name)
         if cls is None:
             logger.warning("unknown provider in chain: %s", name)
-            continue
-        if cfg.full_screen and name in _CLOUD_PROVIDERS:
-            logger.warning("full-screen capture is local-only; skipping cloud provider: %s", name)
             continue
         if name == "openrouter":
             built.append(cls(model=cfg.model_openrouter))
@@ -423,3 +414,197 @@ class VisionClient:
             close = getattr(provider, "close", None)
             if callable(close):
                 close()
+===== tests/test_capture.py =====
+---
+"""Tests for capture helpers and config: frame digest determinism, base64 PNG
+encoding, config defaults, and env/TOML overrides."""
+
+from __future__ import annotations
+
+import base64
+
+from PIL import Image
+
+from ai_trader.capture import FrameGate, frame_digest, image_to_base64_png
+from ai_trader.config import Region, load_config
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _solid(color: tuple[int, int, int]) -> Image.Image:
+    return Image.new("RGB", (64, 48), color)
+
+
+def test_frame_digest_is_stable_for_same_frame() -> None:
+    assert frame_digest(_solid((255, 0, 0))) == frame_digest(_solid((255, 0, 0)))
+
+
+def test_frame_digest_changes_for_different_frame() -> None:
+    assert frame_digest(_solid((255, 0, 0))) != frame_digest(_solid((0, 0, 255)))
+
+
+def test_frame_gate_skips_only_successfully_processed_frames() -> None:
+    gate = FrameGate()
+    digest = frame_digest(_solid((0, 0, 0)))
+
+    assert gate.is_new(digest) is True
+    assert gate.is_new(digest) is True  # an unprocessed frame must be retried
+
+    gate.mark_processed(digest)
+    assert gate.is_new(digest) is False
+
+
+def test_image_to_base64_png_encodes_valid_png() -> None:
+    encoded = image_to_base64_png(_solid((10, 20, 30)))
+    assert encoded
+    assert base64.b64decode(encoded)[:8] == PNG_MAGIC
+
+
+def test_config_defaults_load_without_file() -> None:
+    cfg = load_config("does-not-exist.toml")
+    assert cfg.region.width == 1280
+    assert cfg.provider_chain == ["ollama", "openrouter", "anthropic", "noop"]
+    assert cfg.calls_per_minute == 6
+
+
+def test_config_reads_toml(tmp_path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[capture]\n"
+        'region = { left = 100, top = 50, width = 900, height = 600 }\n'
+        "\n[polling]\n"
+        "interval_seconds = 5\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(config_file)
+    assert cfg.region.left == 100
+    assert cfg.region.width == 900
+    assert cfg.interval_seconds == 5
+    # Unspecified values keep their defaults (deep-merge).
+    assert cfg.calls_per_minute == 6
+
+
+def test_env_region_override(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_TRADER_REGION", "10,20,300,200")
+    cfg = load_config(tmp_path / "none.toml")
+    assert (cfg.region.left, cfg.region.top, cfg.region.width, cfg.region.height) == (10, 20, 300, 200)
+
+
+def test_region_nonzero() -> None:
+    assert Region(0, 0, 1280, 720).nonzero
+    assert not Region(0, 0, 0, 0).nonzero
+===== scripts/validate_provider.py =====
+---
+"""Phase 0 — provider validation.
+
+Captures the configured screen region and prints each provider's RAW model output,
+unparsed, so you can judge whether a free vision model can actually read your chart
+(the plan's Phase 0 exit criterion).
+
+Usage:
+    python scripts\\validate_provider.py                # every provider in the chain
+    python scripts\\validate_provider.py --provider openrouter
+    python scripts\\validate_provider.py --region 100,50,900,600
+"""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from pathlib import Path
+
+# Allow running as a loose script (scripts/validate_provider.py) without install.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from ai_trader.capture import frame_digest, grab_region, image_to_base64_png  # noqa: E402
+from ai_trader.config import load_config, with_region  # noqa: E402
+from ai_trader.providers import make_provider_chain  # noqa: E402
+from ai_trader.signal import SignalEngine  # noqa: E402
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="validate_provider",
+        description="Phase 0 provider validation — print raw vision-model output for a captured frame.",
+    )
+    parser.add_argument("--config", default=None, help="path to config.toml")
+    parser.add_argument("--provider", default=None, help="limit to one provider name (e.g. openrouter)")
+    parser.add_argument("--region", default=None, help="override capture region as left,top,width,height")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_arg_parser().parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+
+    cfg = load_config(args.config)
+    if args.region:
+        left, top, width, height = (int(part) for part in args.region.split(","))
+        cfg = with_region(cfg, left, top, width, height)
+
+    print(f"capturing region {cfg.region}")
+    image = grab_region(cfg.region)
+    print(f"frame {image.size}, digest {frame_digest(image)}")
+    image_b64 = image_to_base64_png(image)
+
+    engine = SignalEngine(market=cfg.market, symbol_hint=cfg.symbol_hint)
+    prompt = engine.build_prompt()
+
+    providers = [
+        provider
+        for provider in make_provider_chain(cfg)
+        if args.provider is None or provider.name == args.provider
+    ]
+    if not providers:
+        print(f"no provider matched: {args.provider}", file=sys.stderr)
+        return 2
+
+    any_success = False
+    for provider in providers:
+        print(f"\n===== {provider.name} =====")
+        try:
+            result = provider.analyze(image_b64, "image/png", prompt)
+        except Exception as exc:  # provider may raise ProviderError or network errors
+            print(f"FAILED: {type(exc).__name__}: {exc}")
+            continue
+        print(f"model: {result.model}")
+        print("--- raw output ---")
+        print(result.text)
+        any_success = True
+
+    return 0 if any_success else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+===== config.toml =====
+---
+# AI Trader configuration — local settings.
+# Environment variables override the important values.
+
+[capture]
+# Set this to the trading-platform chart region; values are screen pixels.
+region = { left = 0, top = 0, width = 1280, height = 720 }
+monitor = 1
+
+[polling]
+interval_seconds = 10
+min_flip_hold_seconds = 60
+
+[providers]
+chain = ["ollama", "openrouter", "anthropic", "noop"]
+cooldown_seconds = 30
+
+[providers.budget]
+calls_per_minute = 6
+min_interval_seconds = 8
+
+[providers.models]
+openrouter = "google/gemma-4-31b-it:free"
+anthropic = "claude-sonnet-5"
+ollama = "qwen2.5vl:3b"
+
+[signal]
+market = "NSE"
+symbol_hint = ""

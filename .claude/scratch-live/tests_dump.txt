@@ -1,9 +1,88 @@
+===== tests/test_capture.py =====
+"""Tests for capture helpers and config: frame digest determinism, base64 PNG
+encoding, config defaults, and env/TOML overrides."""
+
+from __future__ import annotations
+
+import base64
+
+from PIL import Image
+
+from ai_trader.capture import FrameGate, frame_digest, image_to_base64_png
+from ai_trader.config import Region, load_config
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def _solid(color: tuple[int, int, int]) -> Image.Image:
+    return Image.new("RGB", (64, 48), color)
+
+
+def test_frame_digest_is_stable_for_same_frame() -> None:
+    assert frame_digest(_solid((255, 0, 0))) == frame_digest(_solid((255, 0, 0)))
+
+
+def test_frame_digest_changes_for_different_frame() -> None:
+    assert frame_digest(_solid((255, 0, 0))) != frame_digest(_solid((0, 0, 255)))
+
+
+def test_frame_gate_skips_only_successfully_processed_frames() -> None:
+    gate = FrameGate()
+    digest = frame_digest(_solid((0, 0, 0)))
+
+    assert gate.is_new(digest) is True
+    assert gate.is_new(digest) is True  # an unprocessed frame must be retried
+
+    gate.mark_processed(digest)
+    assert gate.is_new(digest) is False
+
+
+def test_image_to_base64_png_encodes_valid_png() -> None:
+    encoded = image_to_base64_png(_solid((10, 20, 30)))
+    assert encoded
+    assert base64.b64decode(encoded)[:8] == PNG_MAGIC
+
+
+def test_config_defaults_load_without_file() -> None:
+    cfg = load_config("does-not-exist.toml")
+    assert cfg.region.width == 1280
+    assert cfg.provider_chain == ["ollama", "openrouter", "anthropic", "noop"]
+    assert cfg.calls_per_minute == 6
+
+
+def test_config_reads_toml(tmp_path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text(
+        "[capture]\n"
+        'region = { left = 100, top = 50, width = 900, height = 600 }\n'
+        "\n[polling]\n"
+        "interval_seconds = 5\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(config_file)
+    assert cfg.region.left == 100
+    assert cfg.region.width == 900
+    assert cfg.interval_seconds == 5
+    # Unspecified values keep their defaults (deep-merge).
+    assert cfg.calls_per_minute == 6
+
+
+def test_env_region_override(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_TRADER_REGION", "10,20,300,200")
+    cfg = load_config(tmp_path / "none.toml")
+    assert (cfg.region.left, cfg.region.top, cfg.region.width, cfg.region.height) == (10, 20, 300, 200)
+
+
+def test_region_nonzero() -> None:
+    assert Region(0, 0, 1280, 720).nonzero
+    assert not Region(0, 0, 0, 0).nonzero
+
+===== tests/test_providers.py =====
 """Tests for the Vision LLM Layer: NoOp mock, provider payload shapes (via
 httpx.MockTransport, no network), and the fallback-chain behavior."""
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
 import httpx
@@ -16,7 +95,6 @@ from ai_trader.providers import (
     ProviderError,
     ProviderResult,
     VisionClient,
-    make_provider_chain,
 )
 from ai_trader.rate_guard import RateGuard
 
@@ -200,13 +278,109 @@ def test_rotation_falls_forward_to_the_next_provider() -> None:
     assert result.model == "a/model"
     assert a.calls == 1
 
+===== tests/test_cli.py =====
+"""Tests for single-read and opt-in polling behavior."""
 
-def test_make_provider_chain_full_screen_is_local_only() -> None:
-    from ai_trader.config import load_config
+from __future__ import annotations
 
-    cfg = dataclasses.replace(load_config("does-not-exist.toml"), full_screen=True)
-    names = [p.name for p in make_provider_chain(cfg)]
-    assert "ollama" in names
-    assert "noop" in names
-    assert "openrouter" not in names
-    assert "anthropic" not in names
+from PIL import Image
+
+from ai_trader.capture import FrameGate
+from ai_trader.cli import build_arg_parser, read_signal, run_watch
+from ai_trader.config import load_config
+from ai_trader.providers import ProviderResult
+from ai_trader.signal import SignalEngine
+
+GOOD_RESPONSE = '''{
+  "action": "hold",
+  "confidence": 50,
+  "entry": null,
+  "stop_loss": null,
+  "target": null,
+  "position_size_pct": null,
+  "timeframe": "15m",
+  "reasoning": "No new setup.",
+  "market": "NSE",
+  "symbol": "NIFTY"
+}'''
+
+
+class FakeClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
+        self.calls += 1
+        return ProviderResult(text=GOOD_RESPONSE, model="fake/test")
+
+
+def test_watch_mode_skips_unchanged_frames_after_a_success(monkeypatch) -> None:
+    image = Image.new("RGB", (32, 32), "black")
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
+    cfg = load_config()
+    client = FakeClient()
+    gate = FrameGate()
+    engine = SignalEngine()
+
+    first = read_signal(cfg, client, engine, frame_gate=gate, skip_unchanged=True)
+    second = read_signal(cfg, client, engine, frame_gate=gate, skip_unchanged=True)
+
+    assert first.ctx is not None
+    assert second.frame_unchanged is True
+    assert client.calls == 1
+
+
+def test_manual_read_still_analyzes_an_unchanged_frame(monkeypatch) -> None:
+    image = Image.new("RGB", (32, 32), "black")
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
+    cfg = load_config()
+    client = FakeClient()
+    gate = FrameGate()
+    engine = SignalEngine()
+
+    assert read_signal(cfg, client, engine, frame_gate=gate, skip_unchanged=True).ctx is not None
+    assert read_signal(cfg, client, engine, frame_gate=gate).ctx is not None
+    assert client.calls == 2
+
+
+def test_watch_flag_parses_with_overlay() -> None:
+    args = build_arg_parser().parse_args(["--overlay", "--watch"])
+    assert args.overlay is True
+    assert args.watch is True
+
+
+def test_watch_flag_parses_without_overlay() -> None:
+    args = build_arg_parser().parse_args(["--watch"])
+    assert args.watch is True
+    assert args.overlay is False
+
+
+def test_watch_loop_skips_unchanged_frames(monkeypatch) -> None:
+    image = Image.new("RGB", (32, 32), "black")
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
+    cfg = load_config()
+    client = FakeClient()
+    engine = SignalEngine()
+
+    results = list(
+        run_watch(cfg, client, engine, interval_seconds=0, max_iterations=3, sleep_fn=lambda _: None)
+    )
+
+    assert len(results) == 3
+    assert results[0].ctx is not None
+    assert all(r.frame_unchanged for r in results[1:])
+    assert client.calls == 1
+
+
+def test_watch_loop_respects_max_iterations(monkeypatch) -> None:
+    image = Image.new("RGB", (32, 32), "black")
+    monkeypatch.setattr("ai_trader.cli.grab_region", lambda region: image)
+    cfg = load_config()
+    client = FakeClient()
+    engine = SignalEngine()
+
+    results = list(
+        run_watch(cfg, client, engine, interval_seconds=0, max_iterations=2, sleep_fn=lambda _: None)
+    )
+    assert len(results) == 2
+

@@ -1,0 +1,23 @@
+capturing region Region(left=0, top=0, width=1280, height=720)
+frame (1280, 720), digest ac460e6077d863e3
+
+===== ollama =====
+model: ollama/qwen2.5vl:3b
+--- raw output ---
+{
+  "action": "hold",
+  "confidence": 60,
+  "entry": null,
+  "stop_loss": null,
+  "target": null,
+  "position_size_pct": null,
+  "timeframe": "1d",
+  "reasoning": "The NIFTY index is showing a slight downward trend, which might indicate a potential sell signal. However, the current position size and entry point are not clearly visible.",
+  "market": "NSE",
+  "symbol": "NIFTY"
+}
+
+===STDERR===
+INFO httpx: HTTP Request: POST http://localhost:11434/api/chat "HTTP/1.1 200 OK"
+
+===RC=0===

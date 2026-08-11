@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
-from ai_trader.capture import FrameGate, frame_digest, grab_region, image_to_base64_png
+from ai_trader.capture import FrameGate, frame_digest, grab_screen, image_to_base64_png
 from ai_trader.config import load_config, with_region
 from ai_trader.overlay import SignalView
 from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
@@ -78,7 +78,7 @@ def read_signal(
     """
     started = time.monotonic()
     try:
-        image = grab_region(cfg.region)
+        image = grab_screen(cfg)
         captured_at = time.time()
         digest = frame_digest(image)
         if frame_gate is not None and skip_unchanged and not frame_gate.is_new(digest):

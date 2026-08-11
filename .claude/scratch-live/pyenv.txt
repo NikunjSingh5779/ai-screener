@@ -1,0 +1,11 @@
+python=C:\Python314\python.exe
+version=3.14.5 (tags/v3.14.5:5607950, May 10 2026, 10:43:50) [MSC v.1944 64 bit (AMD64)]
+httpx                                    0.28.1
+pillow                                   12.2.0
+pydantic                                 2.13.4
+pydantic_core                            2.46.4
+pydantic-settings                        2.14.2
+pytest                                   9.1.1
+pytest-asyncio                           1.4.0
+pytest-cov                               7.1.0
+pytest-httpx                             0.36.2

@@ -306,26 +306,15 @@ def _base_models() -> dict[str, type]:
     }
 
 
-_CLOUD_PROVIDERS = frozenset({"openrouter", "anthropic"})
-
-
 def make_provider_chain(cfg: Config) -> list[Provider]:
     """Build provider backends in config order, always guaranteeing a ``noop``
-    last resort so the chain never has zero backends (offline-safe).
-
-    Full-screen capture is local-only: when ``cfg.full_screen`` is set, cloud
-    providers (openrouter, anthropic) are skipped so a full-desktop frame can
-    never leave the machine (plan §2.1 privacy guard).
-    """
+    last resort so the chain never has zero backends (offline-safe)."""
     registry = _base_models()
     built: list[Provider] = []
     for name in cfg.provider_chain:
         cls = registry.get(name)
         if cls is None:
             logger.warning("unknown provider in chain: %s", name)
-            continue
-        if cfg.full_screen and name in _CLOUD_PROVIDERS:
-            logger.warning("full-screen capture is local-only; skipping cloud provider: %s", name)
             continue
         if name == "openrouter":
             built.append(cls(model=cfg.model_openrouter))

@@ -4,10 +4,11 @@ encoding, config defaults, and env/TOML overrides."""
 from __future__ import annotations
 
 import base64
+import dataclasses
 
 from PIL import Image
 
-from ai_trader.capture import FrameGate, frame_digest, image_to_base64_png
+from ai_trader.capture import FrameGate, frame_digest, grab_screen, image_to_base64_png
 from ai_trader.config import Region, load_config
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -75,3 +76,33 @@ def test_env_region_override(monkeypatch, tmp_path) -> None:
 def test_region_nonzero() -> None:
     assert Region(0, 0, 1280, 720).nonzero
     assert not Region(0, 0, 0, 0).nonzero
+
+
+def test_config_full_screen_defaults_off() -> None:
+    cfg = load_config("does-not-exist.toml")
+    assert cfg.full_screen is False
+
+
+def test_config_full_screen_from_toml(tmp_path) -> None:
+    config_file = tmp_path / "config.toml"
+    config_file.write_text("[capture]\nfull_screen = true\n", encoding="utf-8")
+    assert load_config(config_file).full_screen is True
+
+
+def test_env_full_screen_override(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("AI_TRADER_FULL_SCREEN", "1")
+    assert load_config(tmp_path / "none.toml").full_screen is True
+
+
+def test_grab_screen_dispatches_on_full_screen(monkeypatch) -> None:
+    cfg = load_config("does-not-exist.toml")
+    region_cfg = dataclasses.replace(cfg, full_screen=False)
+    full_cfg = dataclasses.replace(cfg, full_screen=True)
+
+    region_shot = Image.new("RGB", (32, 32), "red")
+    full_shot = Image.new("RGB", (64, 64), "blue")
+    monkeypatch.setattr("ai_trader.capture.grab_region", lambda region: region_shot)
+    monkeypatch.setattr("ai_trader.capture.grab_monitor", lambda monitor: full_shot)
+
+    assert grab_screen(region_cfg) is region_shot
+    assert grab_screen(full_cfg) is full_shot

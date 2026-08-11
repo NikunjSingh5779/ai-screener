@@ -1,0 +1,10 @@
+WARNING ai_trader.providers: full-screen capture is local-only; skipping cloud provider: openrouter
+WARNING ai_trader.providers: full-screen capture is local-only; skipping cloud provider: anthropic
+capturing full screen (monitor 1)
+frame (2560, 1600), digest 2a81df4e4417adc3
+
+===== noop =====
+model: noop/mock
+--- raw output ---
+{"action": "hold", "confidence": 50, "entry": null, "stop_loss": null, "target": null, "position_size_pct": null, "timeframe": "15m", "reasoning": "NoOp provider: no API key configured. This is a mock signal for offline testing.", "market": "", "symbol": ""}
+EXIT=0

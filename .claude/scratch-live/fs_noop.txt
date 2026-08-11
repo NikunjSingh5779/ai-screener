@@ -1,0 +1,23 @@
+capturing full screen (monitor 1)
+Traceback (most recent call last):
+  File "C:\Users\ASUS\OneDrive\Desktop\ai screener\ai_trader\capture.py", line 55, in monitor_bounds
+    import mss
+ModuleNotFoundError: No module named 'mss'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ASUS\OneDrive\Desktop\ai screener\scripts\validate_provider.py", line 86, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "C:\Users\ASUS\OneDrive\Desktop\ai screener\scripts\validate_provider.py", line 53, in main
+    image = grab_screen(cfg)
+  File "C:\Users\ASUS\OneDrive\Desktop\ai screener\ai_trader\capture.py", line 85, in grab_screen
+    return grab_monitor(cfg.monitor)
+  File "C:\Users\ASUS\OneDrive\Desktop\ai screener\ai_trader\capture.py", line 78, in grab_monitor
+    return grab_region(monitor_bounds(monitor))
+                       ~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\ASUS\OneDrive\Desktop\ai screener\ai_trader\capture.py", line 57, in monitor_bounds
+    raise CaptureError("mss is not installed (pip install -r requirements.txt)") from exc
+ai_trader.capture.CaptureError: mss is not installed (pip install -r requirements.txt)
+EXIT=1
