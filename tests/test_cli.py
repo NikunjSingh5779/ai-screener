@@ -5,7 +5,7 @@ from __future__ import annotations
 from PIL import Image
 
 from ai_trader.capture import FrameGate
-from ai_trader.cli import build_arg_parser, read_signal, run_watch
+from ai_trader.cli import build_arg_parser, main, read_signal, run_watch
 from ai_trader.config import load_config
 from ai_trader.providers import ProviderResult
 from ai_trader.signal import SignalEngine
@@ -102,3 +102,50 @@ def test_watch_loop_respects_max_iterations(monkeypatch) -> None:
         run_watch(cfg, client, engine, interval_seconds=0, max_iterations=2, sleep_fn=lambda _: None)
     )
     assert len(results) == 2
+
+
+def test_hotkey_exit_closes_client(monkeypatch) -> None:
+    """Regression (Task 3): leaving via the hotkey path must still close the client.
+
+    ``main()`` used to ``return 0`` from the hotkey block without calling
+    ``client.close()``; only the interactive fallback loop closed it.
+    """
+    closed = {"count": 0}
+
+    class ClosingClient(FakeClient):
+        def close(self) -> None:
+            closed["count"] += 1
+
+    class FakeEngine:
+        def build_prompt(self):
+            return "prompt"
+
+        def parse(self, text):
+            return None
+
+    class FakeKeyboard:
+        def __init__(self) -> None:
+            self.added: list[tuple] = []
+
+        def add_hotkey(self, hotkey, handler) -> None:
+            self.added.append((hotkey, handler))
+
+        def wait(self) -> None:
+            return  # simulate hotkey-triggered exit
+
+    import sys
+    import types
+    fake_kb = FakeKeyboard()
+    keyboard_mod = types.ModuleType("keyboard")
+    keyboard_mod.add_hotkey = fake_kb.add_hotkey
+    keyboard_mod.wait = fake_kb.wait
+    monkeypatch.setitem(sys.modules, "keyboard", keyboard_mod)
+    monkeypatch.setattr(
+        "ai_trader.cli.build_pipeline",
+        lambda cfg: (ClosingClient(), FakeEngine()),
+    )
+
+    main(["--hotkey", "f8"])
+
+    assert closed["count"] == 1
+    assert fake_kb.added[0][0] == "f8"

@@ -288,7 +288,10 @@ def main(argv: list[str] | None = None) -> int:
             keyboard.add_hotkey(args.hotkey, on_read)
             keyboard.add_hotkey(cfg.log_hotkey, on_log)
             print(f"AI Trader ready. Press {args.hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log. Ctrl+C to exit.")
-            keyboard.wait()
+            try:
+                keyboard.wait()
+            finally:
+                client.close()
             return 0
         except Exception as exc:
             print(f"global hotkey unavailable ({exc}); falling back to interactive loop")
