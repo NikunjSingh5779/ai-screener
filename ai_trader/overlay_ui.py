@@ -41,6 +41,7 @@ from ai_trader.logger import TradeLogger
 
 if TYPE_CHECKING:  # pragma: no cover - type-only; cli is lazily imported at runtime
     from ai_trader.cli import ReadResult
+    from ai_trader.signal import SignalContext
 
 logger = logging.getLogger(__name__)
 
