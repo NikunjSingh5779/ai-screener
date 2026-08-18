@@ -52,6 +52,13 @@ def format_price(value: float | None) -> str:
     return text
 
 
+def format_qty(value: float | None) -> str:
+    """Format the risk-computed quantity (whole units for equities)."""
+    if value is None:
+        return MISSING
+    return f"{value:g}"
+
+
 def format_age(seconds: float) -> str:
     """Human age string: ``"5s"``, ``"1m 5s"``, ``"1h 2m"``."""
     total = max(0, int(seconds))
@@ -86,6 +93,7 @@ class SignalView:
     stop_loss: str
     target: str
     size: str
+    qty: str
     timeframe: str
     reasoning: str
     provider_model: str
@@ -112,6 +120,7 @@ class SignalView:
             if signal.position_size_pct is not None
             else MISSING
         )
+        qty = format_qty(signal.quantity)
         return cls(
             action=signal.action.lower(),
             action_label=style["label"],
@@ -123,6 +132,7 @@ class SignalView:
             stop_loss=format_price(signal.stop_loss),
             target=format_price(signal.target),
             size=size,
+            qty=qty,
             timeframe=signal.timeframe or MISSING,
             reasoning=truncate(signal.reasoning),
             provider_model=ctx.model or MISSING,

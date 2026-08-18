@@ -56,6 +56,7 @@ DEFAULTS: dict = {
             ),
         },
     },
+    "risk": {"account_size": 0.0, "risk_per_trade_pct": 1.0},
     "logging": {
         "hotkey": "f9",
         "excel_path": "Trade_Log_Tracker.xlsx",
@@ -72,6 +73,8 @@ _ENV_OVERRIDES = {
     "AI_TRADER_FULL_SCREEN": ("capture", "full_screen"),
     "AI_TRADER_LOG_HOTKEY": ("logging", "hotkey"),
     "AI_TRADER_EXCEL_PATH": ("logging", "excel_path"),
+    "AI_TRADER_ACCOUNT_SIZE": ("risk", "account_size"),
+    "AI_TRADER_RISK_PCT": ("risk", "risk_per_trade_pct"),
 }
 
 
@@ -107,6 +110,8 @@ class Config:
     market: str
     symbol_hint: str
     market_notes: dict[str, str]
+    account_size: float
+    risk_per_trade_pct: float
     log_hotkey: str
     excel_path: str
 
@@ -132,7 +137,8 @@ def _apply_env_overrides(data: dict) -> dict:
             data[section][key] = [p.strip() for p in value.split(",") if p.strip()]
         elif key == "full_screen":
             data[section][key] = value.strip().lower() in ("1", "true", "yes", "on")
-        elif key in ("interval_seconds", "min_flip_hold_seconds", "cooldown_seconds"):
+        elif key in ("interval_seconds", "min_flip_hold_seconds", "cooldown_seconds",
+                     "account_size", "risk_per_trade_pct"):
             data[section][key] = float(value)
         else:
             data[section][key] = value
@@ -177,6 +183,8 @@ def load_config(path: str | Path | None = None) -> Config:
         market=str(data["signal"]["market"]),
         symbol_hint=str(data["signal"]["symbol_hint"]),
         market_notes=dict(data["signal"].get("market_notes", {})),
+        account_size=float(data["risk"].get("account_size", 0.0)),
+        risk_per_trade_pct=float(data["risk"].get("risk_per_trade_pct", 1.0)),
         log_hotkey=str(data["logging"]["hotkey"]),
         excel_path=str(data["logging"]["excel_path"]),
     )

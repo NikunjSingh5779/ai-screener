@@ -73,6 +73,9 @@ class TradingSignal(BaseModel):
     position_size_pct: float | None = Field(
         default=None, ge=0, le=100, description="% of capital to risk"
     )
+    quantity: float | None = Field(
+        default=None, description="risk-computed units to hold (not from the vision model)"
+    )
     timeframe: str = Field(default="", description="e.g. 15m, 1h, 1d")
     reasoning: str = Field(default="", description="brief model rationale")
     market: str = Field(default="", description="NSE | BSE | US | Crypto")

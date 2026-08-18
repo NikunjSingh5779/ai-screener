@@ -128,6 +128,50 @@ def test_trade_logger_writes_into_template_row_3(tmp_path: Path, mock_ctx: Signa
 
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
+def test_trade_logger_writes_quantity_to_column_k(tmp_path: Path) -> None:
+    """Task 2 acceptance: a signal with ``quantity`` set lands in column K
+    (Quantity, index 11) of the correct row."""
+    template = Path(__file__).resolve().parent.parent / "Trade_Log_Tracker.xlsx"
+    if not template.exists():
+        pytest.skip("Trade_Log_Tracker.xlsx template not present in repo root")
+    excel_path = tmp_path / "Trade_Log_Tracker.xlsx"
+    shutil.copy2(template, excel_path)
+
+    signal = TradingSignal(
+        action="buy",
+        confidence=85.0,
+        entry=150.5,
+        stop_loss=148.0,
+        target=155.0,
+        position_size_pct=2.0,
+        quantity=1000.0,
+        timeframe="15m",
+        reasoning="Risk-sized",
+        market="NSE",
+        symbol="RELIANCE",
+    )
+    ctx = SignalContext(
+        symbol="RELIANCE",
+        signal=signal,
+        captured_at=1690000000.0,
+        provider="ollama",
+        model="qwen2.5vl:3b",
+    )
+    logger = TradeLogger(excel_path=excel_path)
+    logger.log_signal(ctx)
+
+    wb = openpyxl.load_workbook(excel_path)
+    ws = wb["Trade Log"]
+
+    assert ws.cell(row=3, column=4).value == "RELIANCE"  # Symbol
+    assert ws.cell(row=3, column=11).value == 1000.0  # Quantity (K)
+
+    # The pre-existing Capital-Risked formula in column M survives.
+    m3 = ws.cell(row=3, column=13).value  # Capital Risked
+    assert isinstance(m3, str) and m3.startswith("=IF(")
+
+
+@pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
 def test_trade_logger_file_not_found(tmp_path: Path, mock_ctx: SignalContext) -> None:
     missing_path = tmp_path / "Missing.xlsx"
     logger = TradeLogger(excel_path=missing_path)

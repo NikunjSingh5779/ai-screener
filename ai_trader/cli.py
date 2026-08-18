@@ -26,6 +26,7 @@ from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
 from ai_trader.rate_guard import RateGuard
 from ai_trader.signal import SignalContext, SignalEngine
 from ai_trader.logger import TradeLogger
+from ai_trader.risk import compute_position_size
 
 
 def build_pipeline(cfg):
@@ -109,6 +110,31 @@ def read_signal(
         return ReadResult(error=f"{type(exc).__name__}: {exc}", elapsed=time.monotonic() - started)
 
 
+def _emit_signal(cfg, result: ReadResult) -> None:
+    """Print an accepted signal with risk sizing.
+
+    Only called for signals that already passed ``guard_flip`` (see the call
+    sites in :func:`do_read` and :func:`run_cli_watch`), so a suppressed
+    flip-flop is never announced.
+
+    Advisory only: this prints; it never places a trade.
+    """
+    signal = result.ctx.signal
+    qty = compute_position_size(
+        cfg.account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
+    )
+    if qty is not None:
+        signal.quantity = qty
+        guess = signal.position_size_pct if signal.position_size_pct is not None else "n/a"
+        sizing = f"size | model guess {guess}% | risk-sized qty {qty:g}"
+    else:
+        sizing = "size | position sizing unavailable — set risk.account_size in config.toml"
+    print("\n--- SIGNAL ---")
+    print(json.dumps(signal.model_dump(), indent=2))
+    print(f"provider/model: {result.ctx.model}   ({result.elapsed:.1f}s)")
+    print(sizing)
+
+
 def do_read(cfg, client, engine) -> ReadResult:
     """Capture once and print the resulting signal (or the error)."""
     result = read_signal(cfg, client, engine)
@@ -124,10 +150,7 @@ def do_read(cfg, client, engine) -> ReadResult:
         print(f"\n[error] {result.error}", file=sys.stderr)
         return result
     assert result.ctx is not None
-    signal = result.ctx.signal
-    print("\n--- SIGNAL ---")
-    print(json.dumps(signal.model_dump(), indent=2))
-    print(f"provider/model: {result.ctx.model}   ({result.elapsed:.1f}s)")
+    _emit_signal(cfg, result)
     return result
 
 
@@ -190,10 +213,7 @@ def run_cli_watch(
                 print(f"\n[error] {result.error}", file=sys.stderr)
                 continue
             assert result.ctx is not None
-            signal = result.ctx.signal
-            print("\n--- SIGNAL ---")
-            print(json.dumps(signal.model_dump(), indent=2))
-            print(f"provider/model: {result.ctx.model}   ({result.elapsed:.1f}s)")
+            _emit_signal(cfg, result)
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:

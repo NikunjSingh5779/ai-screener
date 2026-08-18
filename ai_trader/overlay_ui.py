@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 from ai_trader.config import Config, load_config
 from ai_trader.overlay import SignalView
 from ai_trader.logger import TradeLogger
+from ai_trader.risk import compute_position_size
 
 if TYPE_CHECKING:  # pragma: no cover - type-only; cli is lazily imported at runtime
     from ai_trader.cli import ReadResult
@@ -73,12 +74,17 @@ class OverlayWindow(QWidget):
     #: An unexpected error surfaced outside :func:`read_signal`.
     error_reported = pyqtSignal(str)
 
-    def __init__(self, trade_logger: TradeLogger | None = None) -> None:
+    def __init__(
+        self,
+        trade_logger: TradeLogger | None = None,
+        cfg: Config | None = None,
+    ) -> None:
         super().__init__()
         self._view: SignalView | None = None
         self._ctx: "SignalContext" | None = None
         self._drag_offset: tuple[float, float] | None = None
         self._trade_logger = trade_logger
+        self._cfg = cfg
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -109,6 +115,7 @@ class OverlayWindow(QWidget):
 
         card = QFrame()
         card.setObjectName("card")
+        self._card = card
         card.setStyleSheet(
             f"#card {{ background-color: {PANEL_BG}; border: 1px solid {BORDER}; border-radius: 10px; }}"
         )
@@ -153,10 +160,12 @@ class OverlayWindow(QWidget):
         self._sl = self._level_label()
         self._target = self._level_label()
         self._size = self._level_label()
+        self._qty = self._level_label()
         grid.addWidget(self._entry, 0, 0)
         grid.addWidget(self._sl, 0, 1)
         grid.addWidget(self._target, 1, 0)
         grid.addWidget(self._size, 1, 1)
+        grid.addWidget(self._qty, 2, 0, 1, 2)
         layout.addLayout(grid)
 
         self._timeframe = QLabel("")
@@ -205,6 +214,7 @@ class OverlayWindow(QWidget):
         self._sl.setText(f"SL {view.stop_loss}")
         self._target.setText(f"TARGET {view.target}")
         self._size.setText(f"SIZE {view.size}")
+        self._qty.setText(f"QTY {view.qty}")
         self._timeframe.setText(f"TF {view.timeframe}")
         self._reasoning.setText(view.reasoning)
         self.set_status("")
@@ -230,6 +240,7 @@ class OverlayWindow(QWidget):
             "stop_loss": self._sl.text(),
             "target": self._target.text(),
             "size": self._size.text(),
+            "qty": self._qty.text(),
             "timeframe": self._timeframe.text(),
             "reasoning": self._reasoning.text(),
             "footer": self._footer.text(),
@@ -248,9 +259,22 @@ class OverlayWindow(QWidget):
         if result.error:
             self.show_error(result.error)
             return
-        view = result.to_view()
-        if view is not None:
+        if result.ctx is not None:
             self._ctx = result.ctx
+            if self._cfg is not None:
+                signal = result.ctx.signal
+                # Compute risk-based quantity and attach to signal.
+                qty = compute_position_size(
+                    self._cfg.account_size,
+                    self._cfg.risk_per_trade_pct,
+                    signal.entry,
+                    signal.stop_loss,
+                )
+                if qty is not None:
+                    signal.quantity = qty
+                view = SignalView.from_context(result.ctx)
+            else:
+                view = result.to_view()
             self.show_signal(view)
 
     def _update_age(self) -> None:
@@ -324,7 +348,7 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     client, engine = build_pipeline(cfg)
     trade_logger = TradeLogger(excel_path=cfg.excel_path)
 
-    window = OverlayWindow(trade_logger=trade_logger)
+    window = OverlayWindow(trade_logger=trade_logger, cfg=cfg)
     window.set_status(f"Ready — press {hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log")
     window.show()
 
