@@ -1,9 +1,0 @@
-imports load_config: True
-imports SignalView: True
-main uses load_config(): False
-has snapshot(): True
-has signal_ready: True
-has run_overlay: True
-has _read_worker: True
-has perform_read: True
-no stale Config()): False

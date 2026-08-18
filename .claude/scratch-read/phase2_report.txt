@@ -1,7 +1,0 @@
-ai_trader/overlay.py: EXISTS bytes=4390
-tests/test_overlay.py: EXISTS bytes=5472
-ai_trader/overlay_ui.py: EXISTS bytes=12738
-PYTEST_STDOUT:
-...........ss                                                            [100%]
-11 passed, 2 skipped in 0.06s
-PYTEST_RC=0

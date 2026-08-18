@@ -1,8 +1,0 @@
-class SignalContext:
-    symbol: str
-    signal: TradingSignal
-    captured_at: float
-    provider: str
-    model: str
-
-

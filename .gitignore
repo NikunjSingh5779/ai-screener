@@ -7,7 +7,6 @@ __pycache__/
 
 # Config — real keys live in config.toml, never committed
 config.toml
-.claude/
 
 # OS
 Thumbs.db
@@ -17,3 +16,10 @@ Thumbs.db
 collect_check.txt
 collect_summary.txt
 pytest_output.txt
+
+# Claude scratch output (task diagnostics; `.claude/verified/` authors the gitignored state, never commits)
+.claude/*.txt
+.claude/backup/
+.claude/patches/
+.claude/scratch-read/
+.claude/scratch-live/

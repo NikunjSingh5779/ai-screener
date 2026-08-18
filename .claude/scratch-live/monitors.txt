@@ -1,2 +1,0 @@
-{'left': 0, 'top': 0, 'width': 2560, 'height': 1600}
-{'left': 0, 'top': 0, 'width': 2560, 'height': 1600, 'is_primary': True, 'name': 'Generic PnP Monitor', 'unique_id': '\\\\?\\DISPLAY#BOE0CFB#5&268b22bf&0&UID8449#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}'}

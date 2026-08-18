@@ -1,5 +1,0 @@
-venv_python=C:\Users\ASUS\OneDrive\Desktop\ai screener\.venv\Scripts\python.exe
-mss=10.2.0
-openpyxl=3.1.5
-keyboard OK
-PyQt6 OK
