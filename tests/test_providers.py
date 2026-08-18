@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import logging
 
 import httpx
 import pytest
@@ -199,6 +200,53 @@ def test_rotation_falls_forward_to_the_next_provider() -> None:
     result = client.analyze(PNG, "image/png", "prompt")
     assert result.model == "a/model"
     assert a.calls == 1
+
+
+def test_provider_chain_falls_through_when_all_cloud_providers_out(caplog) -> None:
+    """Phase 6 (outage fallback): with openrouter+anthropic mocked to raise and
+    ollama unreachable, the chain must still end on ``noop`` without crashing."""
+    with caplog.at_level(logging.WARNING, logger="ai_trader.providers"):
+        _drive_outage_chain()
+    log_calls = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any("falling forward" in line for line in log_calls)
+
+
+def _drive_outage_chain() -> None:
+    """Build a VisionClient over three failing providers + noop and analyze."""
+
+    class _OutageOpenRouter:
+        name = "openrouter"
+
+        def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
+            raise ProviderError("OpenRouter HTTP 503: service unavailable")
+
+    class _OutageAnthropic:
+        name = "anthropic"
+
+        def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
+            raise ProviderError("Anthropic HTTP 503: service unavailable")
+
+    class _UnreachableOllama:
+        name = "ollama"
+
+        def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
+            raise ProviderError("Ollama not running")
+
+    guard = RateGuard(calls_per_minute=100, min_interval_seconds=0)
+    client = VisionClient(
+        providers=[
+            _OutageOpenRouter(),
+            _UnreachableOllama(),
+            _OutageAnthropic(),
+            NoOpProvider(),
+        ],
+        guard=guard,
+        cooldown_seconds=0,
+    )
+
+    result = client.analyze(PNG, "image/png", "prompt")
+
+    assert result.model == "noop/mock"
 
 
 def test_make_provider_chain_full_screen_is_local_only() -> None:
