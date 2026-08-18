@@ -7,7 +7,7 @@ import os
 
 import pytest
 
-from ai_trader.overlay import SignalView, format_age, format_price, truncate
+from ai_trader.overlay import HIGH_CONFIDENCE_THRESHOLD, SignalView, format_age, format_price, truncate
 from ai_trader.signal import SignalContext, TradingSignal
 
 
@@ -123,15 +123,28 @@ def test_signal_view_age_and_stale() -> None:
     assert view.is_stale(now=1301.0) is True  # age 301s > default 300s stale window
 
 
-# --- Qt smoke test (offscreen) --------------------------------------------
-
-
-def test_overlay_window_renders_signal_offscreen() -> None:
+def _offscreen_window():
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     QtWidgets = pytest.importorskip("PyQt6.QtWidgets")
     from ai_trader.overlay_ui import OverlayWindow
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    return OverlayWindow, app
+
+
+def test_signal_view_high_confidence_flag() -> None:
+    """Task 3: the display model flags confidence at/above the threshold."""
+    assert HIGH_CONFIDENCE_THRESHOLD == 80.0
+    assert SignalView.from_context(_ctx(confidence=80.0)).is_high_confidence is True
+    assert SignalView.from_context(_ctx(confidence=90.0)).is_high_confidence is True
+    assert SignalView.from_context(_ctx(confidence=79.9)).is_high_confidence is False
+
+
+# --- Qt smoke test (offscreen) --------------------------------------------
+
+
+def test_overlay_window_renders_signal_offscreen() -> None:
+    OverlayWindow, app = _offscreen_window()
     win = OverlayWindow()
     win.show_signal(SignalView.from_context(_ctx()))
     snapshot = win.snapshot()
@@ -148,13 +161,97 @@ def test_overlay_window_renders_signal_offscreen() -> None:
 
 
 def test_overlay_window_renders_error() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    QtWidgets = pytest.importorskip("PyQt6.QtWidgets")
-    from ai_trader.overlay_ui import OverlayWindow
-
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    OverlayWindow, app = _offscreen_window()
     win = OverlayWindow()
     win.show_error("all providers failed")
     assert "all providers failed" in win.snapshot()["status"]
     win.close()
     app.processEvents()
+
+
+def test_overlay_window_renders_quantity_offscreen() -> None:
+    """Task 2 accept: the panel shows the risk-sized quantity when configured."""
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.config import load_config
+    from ai_trader.cli import ReadResult
+
+    signal = TradingSignal(
+        action="buy",
+        confidence=85.0,
+        entry=245.5,
+        stop_loss=240.1,
+        target=252.0,
+        position_size_pct=4.5,
+        timeframe="15m",
+        reasoning="breakout",
+        market="NSE",
+        symbol="RELIANCE",
+    )
+    ctx = SignalContext(
+        symbol="RELIANCE",
+        signal=signal,
+        captured_at=1_000_000.0,
+        provider="fake",
+        model="fake/test",
+    )
+
+    cfg = load_config()
+    cfg.account_size = 100_000.0
+    cfg.risk_per_trade_pct = 1.0
+    win = OverlayWindow(cfg=cfg)
+    win._on_signal(ReadResult(ctx=ctx, elapsed=0.5))
+    # 100000 × 1% = 1000 risked ÷ |245.5 − 240.1| = 5.4 → 185.185… qty
+    assert win.snapshot()["qty"] == "QTY 185.185"
+
+
+def test_overlay_window_zero_account_shows_missing_qty_offscreen() -> None:
+    """Task 2 accept: unset/zero risk.account_size keeps QTY as em-dash, no crash."""
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.config import load_config
+    from ai_trader.cli import ReadResult
+
+    signal = TradingSignal(
+        action="buy",
+        confidence=85.0,
+        entry=245.5,
+        stop_loss=240.1,
+        target=252.0,
+        position_size_pct=4.5,
+        timeframe="15m",
+        reasoning="breakout",
+        market="NSE",
+        symbol="RELIANCE",
+    )
+    ctx = SignalContext(
+        symbol="RELIANCE",
+        signal=signal,
+        captured_at=1_000_000.0,
+        provider="fake",
+        model="fake/test",
+    )
+
+    win = OverlayWindow(cfg=load_config())  # account_size 0.0 by default
+    win._on_signal(ReadResult(ctx=ctx, elapsed=0.5))
+    assert win.snapshot()["qty"] == "QTY —"
+
+
+def test_overlay_window_high_confidence_visual_offscreen() -> None:
+    """Task 3 accept: high-confidence directional signals show the badge."""
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.overlay import SignalView
+
+    view = SignalView.from_context(_ctx(confidence=90.0))
+    win = OverlayWindow()
+    win.show_signal(view)
+    assert win.snapshot()["high_conf"] == "⚡ HIGH CONFIDENCE"
+
+
+def test_overlay_window_low_confidence_no_badge_offscreen() -> None:
+    """Task 3 accept: sub-threshold confidence shows no badge."""
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.overlay import SignalView
+
+    view = SignalView.from_context(_ctx(confidence=50.0))
+    win = OverlayWindow()
+    win.show_signal(view)
+    assert win.snapshot()["high_conf"] == ""

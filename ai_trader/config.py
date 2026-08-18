@@ -37,6 +37,7 @@ DEFAULTS: dict = {
     "signal": {
         "market": "NSE",
         "symbol_hint": "",
+        "high_confidence_threshold": 80,
         "market_notes": {
             "NSE": (
                 "NSE cash market. Currency INR. Typical hours 09:15-15:30 IST. "
@@ -73,6 +74,7 @@ _ENV_OVERRIDES = {
     "AI_TRADER_FULL_SCREEN": ("capture", "full_screen"),
     "AI_TRADER_LOG_HOTKEY": ("logging", "hotkey"),
     "AI_TRADER_EXCEL_PATH": ("logging", "excel_path"),
+    "AI_TRADER_HIGH_CONFIDENCE": ("signal", "high_confidence_threshold"),
     "AI_TRADER_ACCOUNT_SIZE": ("risk", "account_size"),
     "AI_TRADER_RISK_PCT": ("risk", "risk_per_trade_pct"),
 }
@@ -110,6 +112,7 @@ class Config:
     market: str
     symbol_hint: str
     market_notes: dict[str, str]
+    high_confidence_threshold: float
     account_size: float
     risk_per_trade_pct: float
     log_hotkey: str
@@ -138,7 +141,7 @@ def _apply_env_overrides(data: dict) -> dict:
         elif key == "full_screen":
             data[section][key] = value.strip().lower() in ("1", "true", "yes", "on")
         elif key in ("interval_seconds", "min_flip_hold_seconds", "cooldown_seconds",
-                     "account_size", "risk_per_trade_pct"):
+                     "account_size", "risk_per_trade_pct", "high_confidence_threshold"):
             data[section][key] = float(value)
         else:
             data[section][key] = value
@@ -183,6 +186,7 @@ def load_config(path: str | Path | None = None) -> Config:
         market=str(data["signal"]["market"]),
         symbol_hint=str(data["signal"]["symbol_hint"]),
         market_notes=dict(data["signal"].get("market_notes", {})),
+        high_confidence_threshold=float(data["signal"].get("high_confidence_threshold", 80)),
         account_size=float(data["risk"].get("account_size", 0.0)),
         risk_per_trade_pct=float(data["risk"].get("risk_per_trade_pct", 1.0)),
         log_hotkey=str(data["logging"]["hotkey"]),

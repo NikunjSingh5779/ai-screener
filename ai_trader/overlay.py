@@ -30,6 +30,10 @@ ACTION_STYLES: dict[str, dict[str, str]] = {
 #: An em-dash stands in for any level the model could not see on the chart.
 MISSING = "—"
 
+#: A signal at/above this confidence is treated as high-confidence on the
+#: panel (badge + highlight), mirroring the alerts threshold default.
+HIGH_CONFIDENCE_THRESHOLD = 80.0
+
 #: A signal older than this is flagged stale on the panel (plan §6: treat
 #: timing as stale rather than acting on it late).
 DEFAULT_STALE_AFTER = 300.0
@@ -98,6 +102,7 @@ class SignalView:
     reasoning: str
     provider_model: str
     captured_at: float
+    is_high_confidence: bool = False
     stale_after: float = DEFAULT_STALE_AFTER
 
     def age_seconds(self, now: float | None = None) -> float:
@@ -133,6 +138,9 @@ class SignalView:
             target=format_price(signal.target),
             size=size,
             qty=qty,
+            is_high_confidence=(
+                signal.confidence >= HIGH_CONFIDENCE_THRESHOLD if signal.confidence is not None else False
+            ),
             timeframe=signal.timeframe or MISSING,
             reasoning=truncate(signal.reasoning),
             provider_model=ctx.model or MISSING,

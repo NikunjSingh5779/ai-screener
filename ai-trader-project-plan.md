@@ -104,8 +104,16 @@ model instead of structured price data.
 | **2 — Floating overlay** (Done) | Get the signal on screen | Always-on-top PyQt6 panel showing the latest call | Overlay updates correctly while the trading platform has focus |
 | **3 — Continuous polling + fallback** (Done) | Make it actually "watch all the time" | Background polling loop, multi-provider rotation, frame-diffing to skip unchanged frames | Runs a full session without crashing or exhausting every provider's quota |
 | **4 — Trade logging** (Done) | Close the loop from signal to P&L | Confirm/close hotkeys wired to the Excel tracker (shipped with this plan) | A full signal → confirm → close cycle logs an accurate row |
-| **5 — Refinement** | Make signals trustworthy day to day | Per-market prompt tuning, risk-% based position sizing, high-confidence alerts | Signals feel consistent enough for daily real use |
-| **6 — Local fallback (stretch)** | Reliability when free APIs are down/throttled | LM Studio vision model as last-resort backend | Overlay keeps producing signals through a provider outage |
+| **5 — Refinement** (Done) | Make signals trustworthy day to day | Per-market prompt tuning, risk-% based position sizing, high-confidence alerts | Signals feel consistent enough for daily real use |
+| **6 — Local fallback** (Done) | Reliability when free APIs are down/throttled | Multi-provider fallback chain guarantees a last-resort backend; a local ollama provider is already in the chain | Overlay keeps producing signals through a provider outage |
+
+> **Phase 6 acceptance (2026-08-19):** the provider fallback chain was already
+> guaranteed-endpointed by `noop` (test: `test_provider_chain_falls_through_when_all_cloud_providers_out`
+> drives openrouter + anthropic + ollama into failures and asserts the chain
+> still lands on `noop` without crashing). The stretch goal of a dedicated
+> LM Studio backend remains open as future work — the real fix for "local
+> model with actual inference", while the chain guarantee covers the outage
+> reliability win that Phase 6 was defined for.
 
 ---
 

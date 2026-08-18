@@ -26,6 +26,7 @@ from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
 from ai_trader.rate_guard import RateGuard
 from ai_trader.signal import SignalContext, SignalEngine
 from ai_trader.logger import TradeLogger
+from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
 
 
@@ -111,13 +112,13 @@ def read_signal(
 
 
 def _emit_signal(cfg, result: ReadResult) -> None:
-    """Print an accepted signal with risk sizing.
+    """Print an accepted signal with risk sizing, and alert if high-confidence.
 
     Only called for signals that already passed ``guard_flip`` (see the call
     sites in :func:`do_read` and :func:`run_cli_watch`), so a suppressed
     flip-flop is never announced.
 
-    Advisory only: this prints; it never places a trade.
+    Advisory only: this prints and beeps; it never places a trade.
     """
     signal = result.ctx.signal
     qty = compute_position_size(
@@ -133,6 +134,7 @@ def _emit_signal(cfg, result: ReadResult) -> None:
     print(json.dumps(signal.model_dump(), indent=2))
     print(f"provider/model: {result.ctx.model}   ({result.elapsed:.1f}s)")
     print(sizing)
+    alert(signal, cfg.high_confidence_threshold)
 
 
 def do_read(cfg, client, engine) -> ReadResult:

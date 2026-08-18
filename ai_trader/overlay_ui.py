@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 from ai_trader.config import Config, load_config
 from ai_trader.overlay import SignalView
 from ai_trader.logger import TradeLogger
+from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
 
 if TYPE_CHECKING:  # pragma: no cover - type-only; cli is lazily imported at runtime
@@ -49,6 +50,8 @@ logger = logging.getLogger(__name__)
 # Panel palette.
 PANEL_BG = "rgba(17, 20, 28, 235)"
 BORDER = "rgba(255, 255, 255, 32)"
+HIGH_BORDER = "rgba(245, 158, 11, 200)"  # high-confidence state: amber border
+HIGH_CONFIDENCE_COLOR = "#f59e0b"  # badge text: amber
 TEXT = "#e2e8f0"
 DIM = "#94a3b8"
 STALE = "#ef4444"
@@ -177,6 +180,11 @@ class OverlayWindow(QWidget):
         self._reasoning.setWordWrap(True)
         layout.addWidget(self._reasoning)
 
+        self._high_conf = QLabel("")
+        self._high_conf.setStyleSheet(f"color:{HIGH_CONFIDENCE_COLOR}; {FONT_TINY} font-weight:700;")
+        self._high_conf.setVisible(False)
+        layout.addWidget(self._high_conf)
+
         layout.addStretch(1)
 
         self._footer = QLabel("")
@@ -220,7 +228,17 @@ class OverlayWindow(QWidget):
         self.set_status("")
         self.show()
         self.adjustSize()
+        self._set_highlight(view.is_high_confidence)
         self._update_age()
+
+    def _set_highlight(self, high: bool) -> None:
+        """Toggle the high-confidence visual: amber border + badge."""
+        border = HIGH_BORDER if high else BORDER
+        self._card.setStyleSheet(
+            f"#card {{ background-color: {PANEL_BG}; border: 2px solid {border}; border-radius: 10px; }}"
+        )
+        self._high_conf.setVisible(high)
+        self._high_conf.setText("⚡ HIGH CONFIDENCE" if high else "")
 
     def show_error(self, message: str) -> None:
         self._status.setStyleSheet(f"color:{ERROR}; {FONT_SMALL}")
@@ -245,6 +263,7 @@ class OverlayWindow(QWidget):
             "reasoning": self._reasoning.text(),
             "footer": self._footer.text(),
             "status": self._status.text(),
+            "high_conf": self._high_conf.text(),
         }
 
     # -- Slots --------------------------------------------------------------
@@ -273,6 +292,7 @@ class OverlayWindow(QWidget):
                 if qty is not None:
                     signal.quantity = qty
                 view = SignalView.from_context(result.ctx)
+                alert(signal, self._cfg.high_confidence_threshold)
             else:
                 view = result.to_view()
             self.show_signal(view)
