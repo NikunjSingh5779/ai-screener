@@ -196,12 +196,15 @@ def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
     )
 
     def respond(action: str) -> ProviderResult:
+        is_sell = action == "sell"
         signal = TradingSignal(
             action=action,
             confidence=90.0,
             entry=100.0,
-            stop_loss=99.5,
-            target=105.0,
+            # Structurally valid levels for the action (short: entry 100,
+            # stop 105, target 95; long: entry 100, stop 99.5, target 105).
+            stop_loss=105.0 if is_sell else 99.5,
+            target=95.0 if is_sell else 105.0,
             position_size_pct=1.5,
             timeframe="15m",
             reasoning="High-confidence reversal.",
@@ -281,8 +284,9 @@ def test_do_read_suppressed_flip_never_alerts(monkeypatch) -> None:
                 action=action,
                 confidence=95.0,
                 entry=100.0,
-                stop_loss=102.0,
-                target=95.0,
+                # Valid levels for either direction (buy: 99.5/105; sell: 105/95).
+                stop_loss=105.0 if action == "sell" else 99.5,
+                target=95.0 if action == "sell" else 105.0,
                 position_size_pct=1.5,
                 timeframe="15m",
                 reasoning="Flip-flop test.",

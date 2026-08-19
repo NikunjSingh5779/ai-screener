@@ -190,10 +190,11 @@ class SignalEngine:
     def parse(text: str) -> TradingSignal:
         """Parse raw model text into a validated :class:`TradingSignal`."""
         try:
-            return TradingSignal(**extract_json(text)).validate_action()
+            signal = TradingSignal(**extract_json(text)).validate_action()
         except (ValidationError, ValueError):
             logger.error("signal validation failed on raw text: %s", text)
             raise
+        return _enforce_structure(signal)
 
     def guard_flip(self, symbol: str, signal: TradingSignal, now: float | None = None) -> bool:
         """True if ``signal`` may be shown; False if it flips direction too soon.
@@ -217,3 +218,38 @@ class SignalEngine:
                     return False
         self._last_direction[symbol] = (signal.action, now)
         return True
+
+
+def _enforce_structure(signal: TradingSignal) -> TradingSignal:
+    """Deterministic structural sanity check, independent of model quality.
+
+    A directional call is only valid when the price levels are ordered
+    correctly — a long buys below and below-target above it; a short sells
+    above and below-target below it. A backwards level set (target above stop
+    on a sell, target below stop on a buy) is a model error that must never
+    reach the overlay or the trade logger as a trade. When invalid, the action
+    is downgraded to ``hold`` and the original numbers are kept in ``reasoning``
+    with a ``[STRUCTURALLY INVALID]`` marker, so the bad read stays visible
+    instead of being silently dropped.
+    """
+    action = signal.action
+    if action not in ("buy", "sell"):
+        return signal
+    entry, stop, target = signal.entry, signal.stop_loss, signal.target
+    if entry is None or stop is None or target is None:
+        return signal
+    valid = (target > entry > stop) if action == "buy" else (target < entry < stop)
+    if valid:
+        return signal
+    marker = f"[STRUCTURALLY INVALID — downgraded from {action}]"
+    note = (
+        f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
+        f"({marker})"
+    )
+    signal.action = "hold"
+    signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
+    logger.warning(
+        "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
+        action, entry, stop, target,
+    )
+    return signal

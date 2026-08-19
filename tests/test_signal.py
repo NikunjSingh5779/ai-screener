@@ -172,3 +172,126 @@ def test_build_prompt_without_market_notes_renders_cleanly() -> None:
     prompt = engine.build_prompt()
     assert "Market notes:" in prompt
     assert "{market_notes}" not in prompt
+
+
+# --- Task: structural sanity check (target/entry/stop ordering) -------------
+
+
+def test_parse_downgrades_backwards_sell_to_hold() -> None:
+    """A sell with target ABOVE stop (target 120 > entry 100 < stop 105) is
+    structurally impossible — it must downgrade to hold, never reach the
+    overlay/logger as a short."""
+    signal = SignalEngine.parse(
+        """{
+          "action": "sell",
+          "confidence": 80,
+          "entry": 100,
+          "stop_loss": 105,
+          "target": 120,
+          "timeframe": "15m",
+          "reasoning": "short the breakdown",
+          "market": "NSE",
+          "symbol": "XYZ"
+        }"""
+    )
+    assert signal.action == "hold"
+    assert "[STRUCTURALLY INVALID — downgraded from sell]" in signal.reasoning
+    assert "original action sell, entry 100.0, stop_loss 105.0, target 120.0" in signal.reasoning
+    assert "short the breakdown" in signal.reasoning  # original rationale retained
+
+
+def test_parse_downgrades_backwards_buy_to_hold() -> None:
+    """A buy with target BELOW stop (entry 100 > stop 105 > target 95) is
+    impossible long — downgraded to hold."""
+    signal = SignalEngine.parse(
+        """{
+          "action": "buy",
+          "confidence": 80,
+          "entry": 100,
+          "stop_loss": 105,
+          "target": 95,
+          "timeframe": "15m",
+          "reasoning": "buy the dip",
+          "market": "NSE",
+          "symbol": "XYZ"
+        }"""
+    )
+    assert signal.action == "hold"
+    assert "[STRUCTURALLY INVALID — downgraded from buy]" in signal.reasoning
+    assert "original action buy, entry 100.0, stop_loss 105.0, target 95.0" in signal.reasoning
+    assert "buy the dip" in signal.reasoning
+
+
+def test_parse_keeps_valid_buy_levels() -> None:
+    """A proper long (target > entry > stop) passes through unchanged."""
+    signal = SignalEngine.parse(
+        """{
+          "action": "buy",
+          "confidence": 72,
+          "entry": 245.5,
+          "stop_loss": 240.1,
+          "target": 252.0,
+          "timeframe": "15m",
+          "reasoning": "breakout",
+          "market": "NSE",
+          "symbol": "RELIANCE"
+        }"""
+    )
+    assert signal.action == "buy"
+    assert signal.reasoning == "breakout"
+    assert "STRUCTURALLY INVALID" not in signal.reasoning
+
+
+def test_parse_keeps_valid_sell_levels() -> None:
+    """A proper short (target < entry < stop) passes through unchanged."""
+    signal = SignalEngine.parse(
+        """{
+          "action": "sell",
+          "confidence": 70,
+          "entry": 250.0,
+          "stop_loss": 255.0,
+          "target": 242.0,
+          "timeframe": "15m",
+          "reasoning": "distribution",
+          "market": "NSE",
+          "symbol": "HDFC"
+        }"""
+    )
+    assert signal.action == "sell"
+    assert signal.reasoning == "distribution"
+
+
+def test_parse_skips_check_when_levels_missing() -> None:
+    """No levels -> no structural verdict; a bare buy stays buy (levels absent
+    means the model could not see them; not an ordering error)."""
+    signal = SignalEngine.parse(
+        '{"action":"buy","confidence":60,"entry":null,"stop_loss":null,"target":null}'
+    )
+    assert signal.action == "buy"
+
+
+def test_parse_keeps_hold_with_backwards_levels() -> None:
+    """hold/watch are never downgraded — the check only guards directional calls."""
+    signal = SignalEngine.parse(
+        '{"action":"hold","confidence":50,"entry":100,"stop_loss":105,"target":120}'
+    )
+    assert signal.action == "hold"
+    assert "STRUCTURALLY INVALID" not in signal.reasoning
+
+
+def test_parse_downgrade_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """The downgrade is visible in the logs — we want to SEE when this fires,
+    not silently suppress a bad trade."""
+    with caplog.at_level("WARNING", logger="ai_trader.signal"):
+        SignalEngine.parse(
+            """{
+              "action": "sell",
+              "confidence": 80,
+              "entry": 100,
+              "stop_loss": 105,
+              "target": 120,
+              "reasoning": "short the breakdown"
+            }"""
+        )
+    messages = [r.getMessage() for r in caplog.records if r.levelno >= 30]
+    assert any("structurally invalid sell" in m and "downgraded to hold" in m for m in messages)
