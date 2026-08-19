@@ -20,6 +20,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 import httpx
@@ -34,6 +35,36 @@ OPENROUTER_DEFAULT_URL = "https://openrouter.ai/api/v1"
 ANTHROPIC_DEFAULT_URL = "https://api.anthropic.com"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
+
+
+def _load_dotenv(path: str | Path | None = None) -> bool:
+    """Load ``KEY=VALUE`` pairs from a ``.env`` file into ``os.environ``
+    without clobbering already-set variables.
+
+    Default path is ``<project root>/.env``. Stdlib-only on purpose — the
+    project keeps zero non-core dependencies; a flat file needs no library.
+    Called once at import so every provider/config env read sees the file.
+    """
+    env_path = Path(path) if path else Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.is_file():
+        return False
+    loaded = 0
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+            loaded += 1
+    if loaded:
+        logger.info("loaded %d variable(s) from %s", loaded, env_path)
+    return loaded > 0
+
+
+_load_dotenv()  # project-root .env — before any provider reads its env vars
 
 
 class ProviderError(RuntimeError):
@@ -307,25 +338,76 @@ def _base_models() -> dict[str, type]:
 
 
 _CLOUD_PROVIDERS = frozenset({"openrouter", "anthropic"})
+_LOCAL_PROVIDERS = frozenset({"ollama"})
 
 
-def make_provider_chain(cfg: Config) -> list[Provider]:
-    """Build provider backends in config order, always guaranteeing a ``noop``
-    last resort so the chain never has zero backends (offline-safe).
+def _cloud_keys_present() -> list[str]:
+    """Names of cloud providers that have a key in the environment.
 
-    Full-screen capture is local-only: when ``cfg.full_screen`` is set, cloud
-    providers (openrouter, anthropic) are skipped so a full-desktop frame can
-    never leave the machine (plan §2.1 privacy guard).
+    Used by :func:`make_provider_chain` to decide whether cloud providers are
+    usable at all: a cloud first choice only makes sense when its key exists
+    (the key's absence used to be discovered only mid-call, wasting a read on
+    a guaranteed failure).
     """
-    registry = _base_models()
-    built: list[Provider] = []
+    present = []
+    if os.getenv("OPENROUTER_API_KEY"):
+        present.append("openrouter")
+    if os.getenv("ANTHROPIC_API_KEY"):
+        present.append("anthropic")
+    return present
+
+
+def _order_chain(cfg: Config) -> list[str]:
+    """Resolve the effective provider chain for this run.
+
+    Ordering rules (the key rule is what makes OpenRouter actually get used):
+      * When a cloud provider has a key, it moves to the head — the keyed
+        cloud is the first choice, and every provider after it is fallback.
+      * ``AI_TRADER_SKIP_LOCAL=1`` removes the local providers (ollama) and
+        any cloud provider without a key, so a validation run can prove a
+        specific keyed cloud provider (Task 3 mode).
+      * ``full_screen`` removes cloud providers entirely — a full-desktop
+        frame never leaves the machine (plan §2.1 privacy guard).
+    ``noop`` is always guaranteed last (offline last resort).
+    """
+    names: list[str] = []
     for name in cfg.provider_chain:
-        cls = registry.get(name)
-        if cls is None:
-            logger.warning("unknown provider in chain: %s", name)
+        if name == "noop":
             continue
         if cfg.full_screen and name in _CLOUD_PROVIDERS:
             logger.warning("full-screen capture is local-only; skipping cloud provider: %s", name)
+            continue
+        if os.getenv("AI_TRADER_SKIP_LOCAL", "") not in ("", "0") and name in _LOCAL_PROVIDERS:
+            logger.info("AI_TRADER_SKIP_LOCAL set; skipping local provider: %s", name)
+            continue
+        names.append(name)
+    if os.getenv("AI_TRADER_SKIP_LOCAL", "") not in ("", "0"):
+        names = [name for name in names if name in _cloud_keys_present()]
+    for cloud in _cloud_keys_present():
+        if cloud in names:
+            names.remove(cloud)
+            names.insert(0, cloud)
+    names.append("noop")
+    return names
+
+
+def make_provider_chain(cfg: Config) -> list[Provider]:
+    """Build provider backends in resolved order, always guaranteeing a ``noop``
+    last resort so the chain never has zero backends (offline-safe).
+
+    The effective order (see :func:`_order_chain`) is logged once at INFO so
+    the intended chain is visible before any call happens — a keyed cloud
+    shows first, a missing key shows the local-first fallback, and
+    ``AI_TRADER_SKIP_LOCAL`` and full-screen are visible there too.
+    """
+    registry = _base_models()
+    order = _order_chain(cfg)
+    logger.info("provider chain resolved: %s", " -> ".join(order))
+    built: list[Provider] = []
+    for name in order:
+        cls = registry.get(name)
+        if cls is None:
+            logger.warning("unknown provider in chain: %s", name)
             continue
         if name == "openrouter":
             built.append(cls(model=cfg.model_openrouter))
@@ -369,19 +451,24 @@ class VisionClient:
         """Effective provider order for the next call.
 
         Real providers rotate so first-choice is spread across the chain
-        (plan §3: multi-provider rotation). ``noop`` stays pinned last — it is
-        the offline last resort, never a real read, so it must not rotate into
-        the first position.
+        (plan §3: multi-provider rotation). A keyed cloud provider is pinned
+        to first place on every call — the enablement decision says "use this
+        provider"; the local fallback must never rotate ahead of it (it stays
+        behind as the offline last resort). ``noop`` is pinned last with the
+        same logic — never a real read, so never rotated into first position.
         """
         ordered = list(self._by_name)
         real = [name for name in ordered if name != "noop"]
-        if self.rotate and real:
-            start = self._next_index % len(real)
-            real = real[start:] + real[:start]
+        prime = next((cloud for cloud in _cloud_keys_present() if cloud in real), None)
+        rest = [name for name in real if name != prime]
+        if self.rotate and rest:
+            start = self._next_index % len(rest)
+            rest = rest[start:] + rest[:start]
             self._next_index += 1
+        chain = ([prime] if prime else []) + rest
         if "noop" in ordered:
-            real.append("noop")
-        return real
+            chain.append("noop")
+        return chain
 
     def _mark_cooldown(self, name: str) -> None:
         self._cooldown_until[name] = time.monotonic() + self.cooldown_seconds

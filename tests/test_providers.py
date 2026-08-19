@@ -258,3 +258,82 @@ def test_make_provider_chain_full_screen_is_local_only() -> None:
     assert "noop" in names
     assert "openrouter" not in names
     assert "anthropic" not in names
+
+
+# --- Task: provider routing — cloud-first when a key is set -----------------
+
+
+def test_make_provider_chain_cloud_first_when_key_set(monkeypatch) -> None:
+    """A set OPENROUTER_API_KEY resolves openrouter to the head of the chain;
+    ollama stays behind as the offline fallback, never ahead of the keyed cloud."""
+    from ai_trader.config import load_config
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    cfg = load_config("does-not-exist.toml")
+    names = [p.name for p in make_provider_chain(cfg)]
+    assert names == ["openrouter", "ollama", "anthropic", "noop"]
+
+
+def test_make_provider_chain_no_key_keeps_config_order(monkeypatch) -> None:
+    """Without any cloud key, the chain stays exactly as configured (current behavior)."""
+    from ai_trader.config import load_config
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg = load_config("does-not-exist.toml")
+    names = [p.name for p in make_provider_chain(cfg)]
+    assert names == ["ollama", "openrouter", "anthropic", "noop"]
+
+
+def test_make_provider_chain_skip_local_flag(monkeypatch) -> None:
+    """AI_TRADER_SKIP_LOCAL=1 with nothing keyed leaves only the offline noop."""
+    from ai_trader.config import load_config
+
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("AI_TRADER_SKIP_LOCAL", "1")
+    cfg = load_config("does-not-exist.toml")
+    names = [p.name for p in make_provider_chain(cfg)]
+    assert names == ["noop"]
+
+
+def test_make_provider_chain_skip_local_keeps_only_keyed_clouds(monkeypatch) -> None:
+    """AI_TRADER_SKIP_LOCAL=1 with a key set leaves keyed clouds + noop — the
+    cloud-only session used to prove a specific provider live."""
+    from ai_trader.config import load_config
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    monkeypatch.setenv("AI_TRADER_SKIP_LOCAL", "1")
+    cfg = load_config("does-not-exist.toml")
+    names = [p.name for p in make_provider_chain(cfg)]
+    assert names == ["openrouter", "noop"]
+
+
+def test_rotation_keeps_keyed_cloud_first_every_read(monkeypatch) -> None:
+    """With a cloud key set, the keyed provider is first on EVERY call — the
+    local fallback is pinned behind it, not rotated into first place."""
+    from ai_trader.config import load_config
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    cfg = load_config("does-not-exist.toml")
+    client = VisionClient(
+        providers=make_provider_chain(cfg),
+        guard=RateGuard(calls_per_minute=100, min_interval_seconds=0),
+        cooldown_seconds=0,
+    )
+    orders = [client._ordered_chain() for _ in range(4)]
+    assert all(order[0] == "openrouter" for order in orders)
+    assert all(order[-1] == "noop" for order in orders)
+    client.close()
+
+
+def test_make_provider_chain_logs_resolved_order(caplog, monkeypatch) -> None:
+    """Startup visibility: one INFO line names the resolved chain before any call."""
+    from ai_trader.config import load_config
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
+    cfg = load_config("does-not-exist.toml")
+    with caplog.at_level(logging.INFO, logger="ai_trader.providers"):
+        make_provider_chain(cfg)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("provider chain resolved" in m and "openrouter" in m for m in messages)

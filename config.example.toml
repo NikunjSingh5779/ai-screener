@@ -16,7 +16,8 @@ interval_seconds = 10
 min_flip_hold_seconds = 60
 
 [providers]
-# Ordered fallback chain. Ollama runs locally (no API key, no rate limits).
+# Ordered fallback chain. A keyed cloud provider (see .env.example) resolves
+# to the head; otherwise local ollama runs first (no API key, no rate limits).
 # If Ollama isn't running, falls forward to openrouter, then noop (offline mock).
 chain = ["ollama", "openrouter", "anthropic", "noop"]
 # Skip a provider for this long after a throttle/error before trying it again.

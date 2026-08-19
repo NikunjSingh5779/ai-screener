@@ -22,10 +22,11 @@ pip install -r requirements.txt
 # 1. Configure your screen region
 Copy-Item config.example.toml config.toml   # then edit the region to your chart window
 
-# 2. Add a provider key (any one — the chain uses whichever is present)
-$env:OPENROUTER_API_KEY = "sk-or-..."     # free tier (recommended, $0)
-#   or
-$env:ANTHROPIC_API_KEY  = "sk-ant-..."
+# 2. Add a provider key (any one — the chain uses whichever is present).
+#    Copy .env.example to .env and fill it in; loading is automatic at startup.
+#    A keyed cloud provider (openrouter/anthropic) becomes the first choice
+#    for every read; local ollama remains the offline fallback.
+Copy-Item .env.example .env   # then edit .env: OPENROUTER_API_KEY=sk-or-...
 
 # 3. Verify a provider can read your chart (Phase 0)
 python scripts\validate_provider.py
@@ -62,14 +63,17 @@ provider/model served each signal so quality changes stay traceable.
 
 | Provider | Key | Cost | Notes |
 |---|---|---|---|
-| `ollama` | — | $0 | Local; attempted **first** by default (needs `ollama serve` + a vision model, e.g. `ollama pull moondream`) |
-| `noop` | — | $0 | Deterministic mock; default when no key is set |
 | `openrouter` | `OPENROUTER_API_KEY` | $0 | Free vision models; `max_price=0` hard bound so a paid model can never be charged |
+| `ollama` | — | $0 | Local; first when no cloud key is set (needs `ollama serve` + a vision model, e.g. `ollama pull moondream`) |
+| `noop` | — | $0 | Deterministic mock; default when no key is set |
 | `anthropic` | `ANTHROPIC_API_KEY` | paid | Via Messages API (vision image blocks) |
 
-The first provider in the chain is `ollama` by default (run `ollama serve` locally and
-`ollama pull moondream` for a free, offline vision model); the chain falls back to the
-API providers in order when one is missing or fails.
+Keys live in `.env` (loaded automatically at startup; see `.env.example`). When a
+cloud key is set, that cloud provider is the first choice for **every** read and
+local `ollama` is the offline fallback; with no cloud key, `ollama` runs first.
+The effective chain order is logged once (INFO) at startup. Set
+`AI_TRADER_SKIP_LOCAL=1` in `.env` to exclude local providers for a hardened
+cloud-only validation run. The chain always ends in `noop` (offline last resort).
 
 Models are editable in `config.toml` → `[providers.models]`.
 
