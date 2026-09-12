@@ -54,7 +54,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"frame {image.size}, digest {frame_digest(image)}")
     image_b64 = image_to_base64_png(image)
 
-    engine = SignalEngine(market=cfg.market, symbol_hint=cfg.symbol_hint)
+    engine = SignalEngine(
+        market=cfg.market,
+        symbol_hint=cfg.symbol_hint,
+        market_notes=cfg.market_notes,
+    )
     prompt = engine.build_prompt()
 
     providers = [
@@ -67,17 +71,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     any_success = False
-    for provider in providers:
-        print(f"\n===== {provider.name} =====")
-        try:
-            result = provider.analyze(image_b64, "image/png", prompt)
-        except Exception as exc:  # provider may raise ProviderError or network errors
-            print(f"FAILED: {type(exc).__name__}: {exc}")
-            continue
-        print(f"model: {result.model}")
-        print("--- raw output ---")
-        print(result.text)
-        any_success = True
+    try:
+        for provider in providers:
+            print(f"\n===== {provider.name} =====")
+            try:
+                result = provider.analyze(image_b64, "image/png", prompt)
+            except Exception as exc:  # provider may raise ProviderError or network errors
+                print(f"FAILED: {type(exc).__name__}: {exc}")
+                continue
+            print(f"model: {result.model}")
+            print("--- raw output ---")
+            print(result.text)
+            any_success = True
+    finally:
+        for provider in providers:
+            close_fn = getattr(provider, "close", None)
+            if callable(close_fn):
+                close_fn()
 
     return 0 if any_success else 1
 

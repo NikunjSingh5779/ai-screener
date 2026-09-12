@@ -383,7 +383,7 @@ def _order_chain(cfg: Config) -> list[str]:
         names.append(name)
     if os.getenv("AI_TRADER_SKIP_LOCAL", "") not in ("", "0"):
         names = [name for name in names if name in _cloud_keys_present()]
-    for cloud in _cloud_keys_present():
+    for cloud in reversed(_cloud_keys_present()):
         if cloud in names:
             names.remove(cloud)
             names.insert(0, cloud)

@@ -54,10 +54,16 @@ def _coerce_price(v: object) -> object:
     if v is None or isinstance(v, (int, float)):
         return v
     if isinstance(v, str):
-        cleaned = v.strip().strip("$₹%").replace(",", "")
+        cleaned = v.strip().strip("$₹€£%~").replace(",", "")
         try:
             return float(cleaned)
         except ValueError:
+            match = re.search(r"[-+]?\d+(?:\.\d+)?", cleaned)
+            if match:
+                try:
+                    return float(match.group(0))
+                except ValueError:
+                    return None
             return None
     return v
 
@@ -76,10 +82,30 @@ class TradingSignal(BaseModel):
     quantity: float | None = Field(
         default=None, description="risk-computed units to hold (not from the vision model)"
     )
+    currency: str | None = Field(
+        default=None, description="currency code (e.g. INR, USD, USDT)"
+    )
     timeframe: str = Field(default="", description="e.g. 15m, 1h, 1d")
     reasoning: str = Field(default="", description="brief model rationale")
     market: str = Field(default="", description="NSE | BSE | US | Crypto")
     symbol: str = Field(default="", description="ticker inferred from the chart")
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def _coerce_action(cls, v: object) -> object:
+        """Strip whitespace, lowercase, and normalize model action synonyms."""
+        if isinstance(v, str):
+            v_clean = v.strip().lower()
+            synonyms = {
+                "strong buy": "buy",
+                "strong_buy": "buy",
+                "strong sell": "sell",
+                "strong_sell": "sell",
+                "neutral": "hold",
+                "wait": "watch",
+            }
+            return synonyms.get(v_clean, v_clean)
+        return v
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -103,7 +129,7 @@ class TradingSignal(BaseModel):
     def _coerce_prices(cls, v: object) -> object:
         return _coerce_price(v)
 
-    @field_validator("timeframe", "reasoning", "market", "symbol", mode="before")
+    @field_validator("timeframe", "reasoning", "market", "symbol", "currency", mode="before")
     @classmethod
     def _coerce_none_to_str(cls, v: object) -> object:
         """Allow model responses to use null for optional descriptive fields."""
@@ -194,6 +220,7 @@ class SignalEngine:
         except (ValidationError, ValueError):
             logger.error("signal validation failed on raw text: %s", text)
             raise
+        signal.quantity = None  # Ensure model never sets risk quantity
         return _enforce_structure(signal)
 
     def guard_flip(self, symbol: str, signal: TradingSignal, now: float | None = None) -> bool:

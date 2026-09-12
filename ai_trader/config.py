@@ -148,10 +148,15 @@ def _apply_env_overrides(data: dict) -> dict:
     if os.getenv("AI_TRADER_REGION"):
         left, top, width, height = (int(x) for x in os.getenv("AI_TRADER_REGION").split(","))
         data["capture"]["region"] = {"left": left, "top": top, "width": width, "height": height}
-    if os.getenv("AI_TRADER_OPENROUTER_MODEL"):
-        data["providers"]["models"]["openrouter"] = os.getenv("AI_TRADER_OPENROUTER_MODEL")
-    if os.getenv("AI_TRADER_OLLAMA_MODEL"):
-        data["providers"]["models"]["ollama"] = os.getenv("AI_TRADER_OLLAMA_MODEL")
+    openrouter_model = os.getenv("AI_TRADER_OPENROUTER_MODEL") or os.getenv("OPENROUTER_MODEL")
+    if openrouter_model:
+        data["providers"]["models"]["openrouter"] = openrouter_model
+    anthropic_model = os.getenv("AI_TRADER_ANTHROPIC_MODEL") or os.getenv("ANTHROPIC_MODEL")
+    if anthropic_model:
+        data["providers"]["models"]["anthropic"] = anthropic_model
+    ollama_model = os.getenv("AI_TRADER_OLLAMA_MODEL") or os.getenv("OLLAMA_MODEL")
+    if ollama_model:
+        data["providers"]["models"]["ollama"] = ollama_model
     return data
 
 

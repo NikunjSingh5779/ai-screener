@@ -41,7 +41,7 @@ class RateGuard:
         calls = self._calls.setdefault(name, deque())
         if len(calls) >= self.calls_per_minute:
             return False
-        if now - self._last.get(name, -self.min_interval_seconds) < self.min_interval_seconds:
+        if now - self._last.get(name, -float("inf")) < self.min_interval_seconds:
             return False
         calls.append(now)
         self._last[name] = now

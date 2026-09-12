@@ -70,6 +70,8 @@ class OverlayWindow(QWidget):
     signal_ready = pyqtSignal(object)
     #: Request a read (emitted by the right-click "Read now" action).
     read_requested = pyqtSignal()
+    #: Request trade logging (hotkey or menu). Marshalled to GUI thread.
+    log_requested = pyqtSignal()
     #: Fired when the window is closed (run_overlay uses it to quit the app).
     closed = pyqtSignal()
     #: Transient status text (e.g. "Reading…") marshalled to the GUI thread.
@@ -102,6 +104,7 @@ class OverlayWindow(QWidget):
         self.status_changed.connect(self.set_status)
         self.error_reported.connect(self.show_error)
         self.signal_ready.connect(self._on_signal)
+        self.log_requested.connect(self.log_current_signal)
 
         self._position()
 
@@ -289,9 +292,11 @@ class OverlayWindow(QWidget):
                     signal.entry,
                     signal.stop_loss,
                 )
-                if qty is not None:
-                    signal.quantity = qty
-                view = SignalView.from_context(result.ctx)
+                signal.quantity = qty
+                view = SignalView.from_context(
+                    result.ctx,
+                    high_confidence_threshold=self._cfg.high_confidence_threshold,
+                )
                 alert(signal, self._cfg.high_confidence_threshold)
             else:
                 view = result.to_view()
@@ -333,7 +338,7 @@ class OverlayWindow(QWidget):
         if chosen is read_action:
             self.read_requested.emit()
         elif chosen is log_action:
-            self.log_current_signal()
+            self.log_requested.emit()
         elif chosen is quit_action:
             self.close()
 
@@ -423,7 +428,7 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     if keyboard is not None:
         try:
             keyboard.add_hotkey(hotkey, perform_read)
-            keyboard.add_hotkey(cfg.log_hotkey, window.log_current_signal)
+            keyboard.add_hotkey(cfg.log_hotkey, window.log_requested.emit)
         except Exception as exc:
             logger.warning("global hotkey unavailable (%s); using the panel menu", exc)
             window.set_status("Ready — right-click to read/log (hotkeys unavailable)")

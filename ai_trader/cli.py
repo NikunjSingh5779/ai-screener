@@ -60,9 +60,13 @@ class ReadResult:
     frame_unchanged: bool = False
     elapsed: float = 0.0
 
-    def to_view(self) -> SignalView | None:
+    def to_view(self, high_confidence_threshold: float = 80.0) -> SignalView | None:
         """A renderable :class:`SignalView`, or ``None`` when there is nothing."""
-        return SignalView.from_context(self.ctx) if self.ctx is not None else None
+        return (
+            SignalView.from_context(self.ctx, high_confidence_threshold=high_confidence_threshold)
+            if self.ctx is not None
+            else None
+        )
 
 
 def read_signal(
@@ -124,8 +128,8 @@ def _emit_signal(cfg, result: ReadResult) -> None:
     qty = compute_position_size(
         cfg.account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
     )
+    signal.quantity = qty
     if qty is not None:
-        signal.quantity = qty
         guess = signal.position_size_pct if signal.position_size_pct is not None else "n/a"
         sizing = f"size | model guess {guess}% | risk-sized qty {qty:g}"
     else:
@@ -223,8 +227,16 @@ def run_cli_watch(
     return 0
 
 
-def parse_region(value: str):
-    left, top, width, height = (int(part) for part in value.split(","))
+def parse_region(value: str) -> tuple[int, int, int, int]:
+    parts = [part.strip() for part in value.split(",")]
+    if len(parts) != 4:
+        raise ValueError(f"region must be 'left,top,width,height', got {value!r}")
+    try:
+        left, top, width, height = (int(p) for p in parts)
+    except ValueError as exc:
+        raise ValueError(f"region coordinates must be integers, got {value!r}") from exc
+    if width <= 0 or height <= 0:
+        raise ValueError(f"region width and height must be positive, got width={width}, height={height}")
     return left, top, width, height
 
 
@@ -260,7 +272,11 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = load_config(args.config)
     if args.region:
-        cfg = with_region(cfg, *parse_region(args.region))
+        try:
+            cfg = with_region(cfg, *parse_region(args.region))
+        except ValueError as exc:
+            print(f"[error] Invalid region: {exc}", file=sys.stderr)
+            return 2
 
     if args.overlay:
         try:
@@ -313,7 +329,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"AI Trader ready. Press {args.hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log. Ctrl+C to exit.")
             try:
                 keyboard.wait()
+            except KeyboardInterrupt:
+                print("\nStopped.")
             finally:
+                try:
+                    keyboard.remove_all_hotkeys()
+                except Exception:
+                    pass
                 client.close()
             return 0
         except Exception as exc:

@@ -133,11 +133,18 @@ def _offscreen_window():
 
 
 def test_signal_view_high_confidence_flag() -> None:
-    """Task 3: the display model flags confidence at/above the threshold."""
+    """Task 3: the display model flags confidence at/above the threshold for directional calls."""
     assert HIGH_CONFIDENCE_THRESHOLD == 80.0
     assert SignalView.from_context(_ctx(confidence=80.0)).is_high_confidence is True
     assert SignalView.from_context(_ctx(confidence=90.0)).is_high_confidence is True
     assert SignalView.from_context(_ctx(confidence=79.9)).is_high_confidence is False
+    # Non-directional calls (hold / watch) never get the high-confidence badge
+    assert SignalView.from_context(_ctx(action="hold", confidence=95.0)).is_high_confidence is False
+    assert SignalView.from_context(_ctx(action="watch", confidence=95.0)).is_high_confidence is False
+    # Custom threshold is respected
+    assert SignalView.from_context(_ctx(action="buy", confidence=85.0), high_confidence_threshold=90.0).is_high_confidence is False
+    assert SignalView.from_context(_ctx(action="buy", confidence=92.0), high_confidence_threshold=90.0).is_high_confidence is True
+
 
 
 # --- Qt smoke test (offscreen) --------------------------------------------

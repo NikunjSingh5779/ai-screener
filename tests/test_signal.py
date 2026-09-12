@@ -295,3 +295,35 @@ def test_parse_downgrade_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
         )
     messages = [r.getMessage() for r in caplog.records if r.levelno >= 30]
     assert any("structurally invalid sell" in m and "downgraded to hold" in m for m in messages)
+
+
+def test_parse_coerces_action_case_and_synonyms() -> None:
+    """Action case variations and model synonyms normalize to valid actions."""
+    assert SignalEngine.parse('{"action":"BUY","confidence":50}').action == "buy"
+    assert SignalEngine.parse('{"action":" Strong Buy ","confidence":50}').action == "buy"
+    assert SignalEngine.parse('{"action":"Sell","confidence":50}').action == "sell"
+    assert SignalEngine.parse('{"action":"neutral","confidence":50}').action == "hold"
+    assert SignalEngine.parse('{"action":"wait","confidence":50}').action == "watch"
+
+
+def test_parse_wipes_hallucinated_quantity() -> None:
+    """A model hallucinating quantity in the JSON output is wiped to None."""
+    signal = SignalEngine.parse('{"action":"hold","confidence":50,"quantity":1234}')
+    assert signal.quantity is None
+
+
+def test_parse_coerces_price_with_currency_suffix_or_tilde() -> None:
+    """Price fields containing currency text or tildes are parsed cleanly."""
+    signal = SignalEngine.parse(
+        """{
+          "action": "hold",
+          "confidence": 50,
+          "entry": "24,583 INR",
+          "stop_loss": "~24000.5",
+          "target": "25100 USD"
+        }"""
+    )
+    assert signal.entry == 24583.0
+    assert signal.stop_loss == 24000.5
+    assert signal.target == 25100.0
+

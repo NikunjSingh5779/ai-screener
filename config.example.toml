@@ -42,3 +42,13 @@ ollama = "moondream"
 # Defaults/labels for signals; the model may infer symbol/market from the chart.
 market = "NSE"
 symbol_hint = ""
+# Alerts sound and visually badge for directional signals at/above this threshold.
+high_confidence_threshold = 80
+
+[risk]
+# Account size in your base currency. Set to > 0 to enable risk-based position sizing.
+# If 0, position sizing is disabled.
+account_size = 0.0
+# Percentage of account capital risked per trade (e.g. 1.0 = 1%).
+risk_per_trade_pct = 1.0
+

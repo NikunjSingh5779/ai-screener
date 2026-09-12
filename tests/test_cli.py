@@ -352,3 +352,33 @@ def test_hotkey_exit_closes_client(monkeypatch) -> None:
 
     assert closed["count"] == 1
     assert fake_kb.added[0][0] == "f8"
+
+
+def test_parse_region_valid() -> None:
+    from ai_trader.cli import parse_region
+
+    assert parse_region("10, 20, 800, 600") == (10, 20, 800, 600)
+
+
+def test_parse_region_invalid_part_count() -> None:
+    import pytest
+    from ai_trader.cli import parse_region
+
+    with pytest.raises(ValueError, match="must be 'left,top,width,height'"):
+        parse_region("10,20,30")
+
+
+def test_parse_region_non_positive_size() -> None:
+    import pytest
+    from ai_trader.cli import parse_region
+
+    with pytest.raises(ValueError, match="positive"):
+        parse_region("0,0,0,720")
+
+
+def test_main_invalid_region_returns_error(capsys) -> None:
+    exit_code = main(["--region", "bad_region"])
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert "Invalid region" in err
+

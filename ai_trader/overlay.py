@@ -116,7 +116,11 @@ class SignalView:
         return self.age_seconds(now) > self.stale_after
 
     @classmethod
-    def from_context(cls, ctx: "SignalContext") -> "SignalView":
+    def from_context(
+        cls,
+        ctx: "SignalContext",
+        high_confidence_threshold: float = HIGH_CONFIDENCE_THRESHOLD,
+    ) -> "SignalView":
         """Build a renderable view from a parsed signal (plus capture metadata)."""
         signal = ctx.signal
         style = ACTION_STYLES.get(signal.action.lower(), ACTION_STYLES["watch"])
@@ -126,6 +130,7 @@ class SignalView:
             else MISSING
         )
         qty = format_qty(signal.quantity)
+        is_directional = signal.action.lower() in ("buy", "sell")
         return cls(
             action=signal.action.lower(),
             action_label=style["label"],
@@ -139,7 +144,9 @@ class SignalView:
             size=size,
             qty=qty,
             is_high_confidence=(
-                signal.confidence >= HIGH_CONFIDENCE_THRESHOLD if signal.confidence is not None else False
+                is_directional and signal.confidence >= high_confidence_threshold
+                if signal.confidence is not None
+                else False
             ),
             timeframe=signal.timeframe or MISSING,
             reasoning=truncate(signal.reasoning),

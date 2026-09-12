@@ -274,6 +274,19 @@ def test_make_provider_chain_cloud_first_when_key_set(monkeypatch) -> None:
     assert names == ["openrouter", "ollama", "anthropic", "noop"]
 
 
+def test_make_provider_chain_multiple_cloud_keys_preserves_openrouter_priority(monkeypatch) -> None:
+    """When both OPENROUTER_API_KEY and ANTHROPIC_API_KEY are present, free
+    OpenRouter stays at index 0 and paid Anthropic follows it."""
+    from ai_trader.config import load_config
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    cfg = load_config("does-not-exist.toml")
+    names = [p.name for p in make_provider_chain(cfg)]
+    assert names == ["openrouter", "anthropic", "ollama", "noop"]
+
+
+
 def test_make_provider_chain_no_key_keeps_config_order(monkeypatch) -> None:
     """Without any cloud key, the chain stays exactly as configured (current behavior)."""
     from ai_trader.config import load_config

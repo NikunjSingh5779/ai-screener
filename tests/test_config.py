@@ -48,3 +48,26 @@ def test_env_override_does_not_leak_between_loads(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv("AI_TRADER_INTERVAL")
     second = load_config()
     assert second.interval_seconds == 10.0  # true default restored, not 5.0
+
+
+def test_env_model_overrides_without_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Models configured as in .env.example (OPENROUTER_MODEL, etc.) override defaults."""
+    monkeypatch.setenv("OPENROUTER_MODEL", "custom/free-model")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-custom")
+    monkeypatch.setenv("OLLAMA_MODEL", "custom-vision")
+    cfg = load_config()
+    assert cfg.model_openrouter == "custom/free-model"
+    assert cfg.model_anthropic == "claude-custom"
+    assert cfg.model_ollama == "custom-vision"
+
+
+def test_env_risk_and_confidence_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Risk and high confidence overrides apply correctly."""
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_SIZE", "50000")
+    monkeypatch.setenv("AI_TRADER_RISK_PCT", "2.5")
+    monkeypatch.setenv("AI_TRADER_HIGH_CONFIDENCE", "85")
+    cfg = load_config()
+    assert cfg.account_size == 50000.0
+    assert cfg.risk_per_trade_pct == 2.5
+    assert cfg.high_confidence_threshold == 85.0
+
