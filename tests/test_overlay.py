@@ -262,3 +262,12 @@ def test_overlay_window_low_confidence_no_badge_offscreen() -> None:
     win = OverlayWindow()
     win.show_signal(view)
     assert win.snapshot()["high_conf"] == ""
+
+
+def test_configure_high_dpi() -> None:
+    """Configures high DPI scale factor rounding policy without errors."""
+    pytest.importorskip("PyQt6.QtWidgets")
+    from ai_trader.overlay_ui import configure_high_dpi
+
+    configure_high_dpi()
+

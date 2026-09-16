@@ -46,7 +46,7 @@ def test_image_to_base64_png_encodes_valid_png() -> None:
 def test_config_defaults_load_without_file() -> None:
     cfg = load_config("does-not-exist.toml")
     assert cfg.region.width == 1280
-    assert cfg.provider_chain == ["ollama", "openrouter", "anthropic", "noop"]
+    assert cfg.provider_chain == ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
     assert cfg.calls_per_minute == 6
 
 

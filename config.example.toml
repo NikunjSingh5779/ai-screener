@@ -17,9 +17,10 @@ min_flip_hold_seconds = 60
 
 [providers]
 # Ordered fallback chain. A keyed cloud provider (see .env.example) resolves
-# to the head; otherwise local ollama runs first (no API key, no rate limits).
-# If Ollama isn't running, falls forward to openrouter, then noop (offline mock).
-chain = ["ollama", "openrouter", "anthropic", "noop"]
+# to the head; otherwise local providers run first (no API key, no rate limits).
+# Local options: ollama (http://localhost:11434), lmstudio (http://localhost:1234).
+# If local providers aren't running, falls forward to openrouter, then noop (offline mock).
+chain = ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
 # Skip a provider for this long after a throttle/error before trying it again.
 cooldown_seconds = 30
 
@@ -30,13 +31,23 @@ min_interval_seconds = 8
 
 [providers.models]
 # Free vision models — verified live on openrouter.ai/api/v1/models (2026-08-10).
-# gemma-4-31b: best general vision read. nemotron-nano-12b-v2-vl: faster, vision-native.
 # Override with env AI_TRADER_OPENROUTER_MODEL to compare without editing files.
 openrouter = "google/gemma-4-31b-it:free"
 anthropic = "claude-sonnet-5"
-# Local model via Ollama — install from ollama.com, then: ollama pull moondream
+# ── Best Local Vision Models for 12 GB VRAM (RTX 5070 Ti) ──
+# Recommended (best quality + speed tradeoff):
+#   ollama pull qwen2.5-vl:7b          ← ~5 GB VRAM, fast, excellent chart reads
+# Alternatives:
+#   ollama pull llava:7b                ← ~4.5 GB, slightly lower chart accuracy
+#   ollama pull minicpm-v:8b            ← ~5.5 GB, strong OCR but slower
+#   ollama pull llava-llama3:8b         ← ~5 GB, good general vision
+#   ollama pull qwen2.5-vl:3b          ← ~2 GB, fastest but lower quality
+#   ollama pull gemma3:12b              ← ~8 GB, very high quality, fills 12 GB
 # Override with env AI_TRADER_OLLAMA_MODEL.
-ollama = "moondream"
+ollama = "qwen2.5-vl:7b"
+# Local model via LM Studio / llama.cpp / vLLM (OpenAI-compatible, port 1234).
+# Override with env AI_TRADER_LMSTUDIO_MODEL or LMSTUDIO_MODEL.
+lmstudio = "local-model"
 
 [signal]
 # Defaults/labels for signals; the model may infer symbol/market from the chart.

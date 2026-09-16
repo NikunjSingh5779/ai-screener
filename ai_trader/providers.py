@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_DEFAULT_URL = "https://openrouter.ai/api/v1"
 ANTHROPIC_DEFAULT_URL = "https://api.anthropic.com"
+LMSTUDIO_DEFAULT_URL = "http://localhost:1234/v1"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
 
@@ -282,7 +283,7 @@ class OllamaProvider:
         base_url: str | None = None,
         timeout: float = 120.0,
     ) -> None:
-        self.model = model or os.getenv("OLLAMA_MODEL") or "moondream"
+        self.model = model or os.getenv("OLLAMA_MODEL") or "qwen2.5-vl:7b"
         self.base_url = (base_url or os.getenv("OLLAMA_BASE_URL") or self.default_base_url).rstrip("/")
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout)
@@ -327,6 +328,72 @@ class OllamaProvider:
         self._client.close()
 
 
+class LMStudioProvider:
+    """Local vision model via LM Studio / llama.cpp / vLLM (OpenAI-compatible).
+
+    Talks to ``http://localhost:1234/v1`` (the default LM Studio local server)
+    using the ``/chat/completions`` endpoint with vision image_url support.
+    Runs locally on GPU (RTX 5070 Ti) with zero API spend and zero cloud leakage.
+    """
+
+    name = "lmstudio"
+    default_base_url = LMSTUDIO_DEFAULT_URL
+
+    def __init__(
+        self,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout: float = 120.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self.model = model or os.getenv("AI_TRADER_LMSTUDIO_MODEL") or os.getenv("LMSTUDIO_MODEL") or "local-model"
+        self.base_url = (base_url or os.getenv("AI_TRADER_LMSTUDIO_BASE_URL") or os.getenv("LMSTUDIO_BASE_URL") or self.default_base_url).rstrip("/")
+        self.timeout = timeout
+        self._client = httpx.Client(timeout=timeout, transport=transport)
+
+    def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{image_b64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            "max_tokens": DEFAULT_MAX_TOKENS,
+        }
+        try:
+            response = self._client.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+        except httpx.ConnectError as exc:
+            raise ProviderError(
+                "LM Studio not running — start it, load a vision model, and enable the local server at http://localhost:1234"
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise ProviderError(
+                f"LM Studio HTTP {exc.response.status_code}: {exc.response.text[:200]}"
+            ) from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            raise ProviderError(f"LM Studio request failed: {exc}") from exc
+
+        if isinstance(data, dict) and "error" in data:
+            raise ProviderError(f"LM Studio returned an error: {data['error']}")
+        try:
+            text = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise ProviderError(f"LM Studio response missing content: {data}") from exc
+        served_model = data.get("model", self.model)
+        return ProviderResult(text=text, model=f"lmstudio/{served_model}")
+
+    def close(self) -> None:
+        self._client.close()
+
+
 def _base_models() -> dict[str, type]:
     """Registry used by :func:`make_provider_chain`; keys match config provider names."""
     return {
@@ -334,11 +401,12 @@ def _base_models() -> dict[str, type]:
         "openrouter": OpenRouterProvider,
         "anthropic": AnthropicProvider,
         "ollama": OllamaProvider,
+        "lmstudio": LMStudioProvider,
     }
 
 
 _CLOUD_PROVIDERS = frozenset({"openrouter", "anthropic"})
-_LOCAL_PROVIDERS = frozenset({"ollama"})
+_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio"})
 
 
 def _cloud_keys_present() -> list[str]:
@@ -415,6 +483,8 @@ def make_provider_chain(cfg: Config) -> list[Provider]:
             built.append(cls(model=cfg.model_anthropic))
         elif name == "ollama":
             built.append(cls(model=cfg.model_ollama))
+        elif name == "lmstudio":
+            built.append(cls(model=cfg.model_lmstudio))
         else:
             built.append(cls())
     if not any(p.name == "noop" for p in built):

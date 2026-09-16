@@ -361,6 +361,15 @@ class OverlayWindow(QWidget):
         super().closeEvent(event)
 
 
+def configure_high_dpi() -> None:
+    """Configure crisp fractional High-DPI scaling on Windows 4K/high-res displays."""
+    if QApplication.instance() is None:
+        if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
+            QApplication.setHighDpiScaleFactorRoundingPolicy(
+                Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+            )
+
+
 def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     """Run the always-on-top overlay: reads on F8 (or right-click) render into
     the floating panel. When ``watch`` is true, poll at the configured interval
@@ -369,6 +378,7 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     from ai_trader.capture import FrameGate
     from ai_trader.cli import build_pipeline, read_signal  # lazy: avoid import cycle
 
+    configure_high_dpi()
     app = QApplication.instance() or QApplication([])
     client, engine = build_pipeline(cfg)
     trade_logger = TradeLogger(excel_path=cfg.excel_path)

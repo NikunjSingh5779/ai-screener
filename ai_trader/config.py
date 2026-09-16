@@ -25,13 +25,14 @@ DEFAULTS: dict = {
         "min_flip_hold_seconds": 60,
     },
     "providers": {
-        "chain": ["ollama", "openrouter", "anthropic", "noop"],
+        "chain": ["ollama", "lmstudio", "openrouter", "anthropic", "noop"],
         "cooldown_seconds": 30,
         "budget": {"calls_per_minute": 6, "min_interval_seconds": 8},
         "models": {
             "openrouter": "google/gemma-4-31b-it:free",
             "anthropic": "claude-sonnet-5",
-            "ollama": "moondream",
+            "ollama": "qwen2.5-vl:7b",
+            "lmstudio": "local-model",
         },
     },
     "signal": {
@@ -109,6 +110,7 @@ class Config:
     model_openrouter: str
     model_anthropic: str
     model_ollama: str
+    model_lmstudio: str
     market: str
     symbol_hint: str
     market_notes: dict[str, str]
@@ -157,6 +159,9 @@ def _apply_env_overrides(data: dict) -> dict:
     ollama_model = os.getenv("AI_TRADER_OLLAMA_MODEL") or os.getenv("OLLAMA_MODEL")
     if ollama_model:
         data["providers"]["models"]["ollama"] = ollama_model
+    lmstudio_model = os.getenv("AI_TRADER_LMSTUDIO_MODEL") or os.getenv("LMSTUDIO_MODEL")
+    if lmstudio_model:
+        data["providers"]["models"]["lmstudio"] = lmstudio_model
     return data
 
 
@@ -188,6 +193,7 @@ def load_config(path: str | Path | None = None) -> Config:
         model_openrouter=str(models["openrouter"]),
         model_anthropic=str(models["anthropic"]),
         model_ollama=str(models["ollama"]),
+        model_lmstudio=str(models.get("lmstudio", "local-model")),
         market=str(data["signal"]["market"]),
         symbol_hint=str(data["signal"]["symbol_hint"]),
         market_notes=dict(data["signal"].get("market_notes", {})),

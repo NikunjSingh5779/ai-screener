@@ -12,6 +12,7 @@ import pytest
 
 from ai_trader.providers import (
     AnthropicProvider,
+    LMStudioProvider,
     NoOpProvider,
     OpenRouterProvider,
     ProviderError,
@@ -103,6 +104,53 @@ def test_anthropic_payload_uses_image_blocks() -> None:
     content = captured["payload"]["messages"][0]["content"]
     assert content[0]["type"] == "image"
     assert content[0]["source"] == {"type": "base64", "media_type": "image/png", "data": PNG}
+    provider.close()
+
+
+def test_lmstudio_payload_shape() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": "lm1",
+                "model": "qwen2.5-vl-7b-instruct",
+                "choices": [{"message": {"content": '{"action":"buy","confidence":80}'}}],
+            },
+        )
+
+    provider = LMStudioProvider(
+        model="qwen2.5-vl-7b-instruct",
+        base_url="http://127.0.0.1:1234/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    result = provider.analyze(PNG, "image/png", "test prompt")
+
+    assert result.model == "lmstudio/qwen2.5-vl-7b-instruct"
+    payload = captured["payload"]
+    assert payload["model"] == "qwen2.5-vl-7b-instruct"
+    messages = payload["messages"]
+    assert messages[0]["role"] == "user"
+    content = messages[0]["content"]
+    assert content[0]["type"] == "image_url"
+    assert content[0]["image_url"]["url"] == f"data:image/png;base64,{PNG}"
+    assert content[1]["type"] == "text"
+    assert content[1]["text"] == "test prompt"
+    provider.close()
+
+
+def test_lmstudio_connection_error_raises_friendly_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused")
+
+    provider = LMStudioProvider(
+        base_url="http://127.0.0.1:9999/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ProviderError, match="LM Studio not running"):
+        provider.analyze(PNG, "image/png", "prompt")
     provider.close()
 
 
@@ -259,6 +307,13 @@ def test_make_provider_chain_full_screen_is_local_only() -> None:
     assert "openrouter" not in names
     assert "anthropic" not in names
 
+    # Local LM Studio is also allowed in full screen mode
+    cfg_lm = dataclasses.replace(cfg, provider_chain=["lmstudio", "openrouter", "noop"])
+    names_lm = [p.name for p in make_provider_chain(cfg_lm)]
+    assert "lmstudio" in names_lm
+    assert "openrouter" not in names_lm
+
+
 
 # --- Task: provider routing — cloud-first when a key is set -----------------
 
@@ -271,7 +326,7 @@ def test_make_provider_chain_cloud_first_when_key_set(monkeypatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-test")
     cfg = load_config("does-not-exist.toml")
     names = [p.name for p in make_provider_chain(cfg)]
-    assert names == ["openrouter", "ollama", "anthropic", "noop"]
+    assert names == ["openrouter", "ollama", "lmstudio", "anthropic", "noop"]
 
 
 def test_make_provider_chain_multiple_cloud_keys_preserves_openrouter_priority(monkeypatch) -> None:
@@ -283,7 +338,7 @@ def test_make_provider_chain_multiple_cloud_keys_preserves_openrouter_priority(m
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     cfg = load_config("does-not-exist.toml")
     names = [p.name for p in make_provider_chain(cfg)]
-    assert names == ["openrouter", "anthropic", "ollama", "noop"]
+    assert names == ["openrouter", "anthropic", "ollama", "lmstudio", "noop"]
 
 
 
@@ -295,7 +350,7 @@ def test_make_provider_chain_no_key_keeps_config_order(monkeypatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cfg = load_config("does-not-exist.toml")
     names = [p.name for p in make_provider_chain(cfg)]
-    assert names == ["ollama", "openrouter", "anthropic", "noop"]
+    assert names == ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
 
 
 def test_make_provider_chain_skip_local_flag(monkeypatch) -> None:

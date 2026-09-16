@@ -36,7 +36,7 @@ def test_deep_merge_returns_independent_copy() -> None:
     # The nested capture region is untouched by any mutation during load.
     assert DEFAULTS["capture"]["region"] == {"left": 0, "top": 0, "width": 1280, "height": 720}
     assert DEFAULTS["polling"]["interval_seconds"] == 10
-    assert DEFAULTS["providers"]["chain"] == ["ollama", "openrouter", "anthropic", "noop"]
+    assert DEFAULTS["providers"]["chain"] == ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
 
 
 def test_env_override_does_not_leak_between_loads(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,10 +55,12 @@ def test_env_model_overrides_without_prefix(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setenv("OPENROUTER_MODEL", "custom/free-model")
     monkeypatch.setenv("ANTHROPIC_MODEL", "claude-custom")
     monkeypatch.setenv("OLLAMA_MODEL", "custom-vision")
+    monkeypatch.setenv("LMSTUDIO_MODEL", "qwen-local")
     cfg = load_config()
     assert cfg.model_openrouter == "custom/free-model"
     assert cfg.model_anthropic == "claude-custom"
     assert cfg.model_ollama == "custom-vision"
+    assert cfg.model_lmstudio == "qwen-local"
 
 
 def test_env_risk_and_confidence_overrides(monkeypatch: pytest.MonkeyPatch) -> None:

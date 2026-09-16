@@ -51,6 +51,7 @@ python -m ai_trader.cli --overlay --watch
 The panel floats above your trading platform and never steals keyboard focus. It shows
 the latest call — action, confidence, entry/stop/target/size, reasoning — plus the
 signal's age ("signal is 8s old"), greying to red when a call goes stale (>5 min).
+High-DPI aware on Windows with crisp fractional scaling for high-resolution displays.
 Requires `PyQt6` (installed by `pip install -r requirements.txt`).
 
 ## Without any API key
@@ -65,12 +66,13 @@ provider/model served each signal so quality changes stay traceable.
 |---|---|---|---|
 | `openrouter` | `OPENROUTER_API_KEY` | $0 | Free vision models; `max_price=0` hard bound so a paid model can never be charged |
 | `ollama` | — | $0 | Local; first when no cloud key is set (needs `ollama serve` + a vision model, e.g. `ollama pull moondream`) |
+| `lmstudio` | — | $0 | Local; OpenAI-compatible endpoint (runs locally on GPU via LM Studio / llama.cpp on `http://localhost:1234`) |
 | `noop` | — | $0 | Deterministic mock; default when no key is set |
 | `anthropic` | `ANTHROPIC_API_KEY` | paid | Via Messages API (vision image blocks) |
 
 Keys live in `.env` (loaded automatically at startup; see `.env.example`). When a
 cloud key is set, that cloud provider is the first choice for **every** read and
-local `ollama` is the offline fallback; with no cloud key, `ollama` runs first.
+local providers (`ollama`, `lmstudio`) are the offline fallback; with no cloud key, local runs first.
 The effective chain order is logged once (INFO) at startup. Set
 `AI_TRADER_SKIP_LOCAL=1` in `.env` to exclude local providers for a hardened
 cloud-only validation run. The chain always ends in `noop` (offline last resort).
