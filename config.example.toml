@@ -25,12 +25,19 @@ ollama = "qwen2.5-vl:7b"
 lmstudio = "local-model"
 
 [signal]
-market = "NSE"
+# AUTO identifies NSE/BSE vs US from the visible TradingView exchange label.
+# Use "NSE", "BSE", or "US" to pin analysis to one market.
+market = "AUTO"
 symbol_hint = ""
 high_confidence_threshold = 85
 
 [risk]
+# Prefer separate balances so quantity calculations never mix INR and USD.
+account_size_inr = 0.0
+account_size_usd = 0.0
+# Legacy single balance. Used only with the matching account_currency.
 account_size = 0.0
+account_currency = "INR"
 risk_per_trade_pct = 0.5
 
 [logging]
