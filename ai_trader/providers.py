@@ -375,9 +375,16 @@ class LMStudioProvider:
             response.raise_for_status()
             data = response.json()
         except httpx.ConnectError as exc:
-            raise ProviderError(
-                f"LM Studio not running — start it or configure the local OpenAI-compatible server at {self.base_url}"
-            ) from exc
+            if self.name in {"polystrata", "strata"}:
+                message = (
+                    f"Local OpenAI-compatible vision server not running at {self.base_url}. "
+                    "Start PolyStrata/Strata and confirm the model has image input enabled."
+                )
+            else:
+                message = (
+                    f"LM Studio not running — start it or configure the local OpenAI-compatible server at {self.base_url}"
+                )
+            raise ProviderError(message) from exc
         except httpx.HTTPStatusError as exc:
             raise ProviderError(
                 f"LM Studio HTTP {exc.response.status_code}: {exc.response.text[:200]}"
