@@ -38,6 +38,7 @@ DEFAULTS: dict = {
             "anthropic": "claude-sonnet-5",
             "ollama": "qwen2.5-vl:7b",
             "lmstudio": "local-model",
+            "polystrata": "strata",
         },
     },
     "signal": {
@@ -234,7 +235,7 @@ def load_config(path: str | Path | None = None) -> Config:
         model_anthropic=str(models["anthropic"]),
         model_ollama=str(models["ollama"]),
         model_lmstudio=str(models.get("lmstudio", "local-model")),
-        model_polystrata=str(models.get("polystrata", "strata")),
+        model_polystrata=str(os.getenv("AI_TRADER_POLYSTRATA_MODEL") or os.getenv("POLYSTRATA_MODEL") or os.getenv("AI_TRADER_STRATA_MODEL") or os.getenv("STRATA_MODEL") or models.get("polystrata", "strata")),
         polystrata_base_url=str(data["providers"].get("polystrata_base_url", "http://127.0.0.1:8080/v1")),
         polystrata_api_key=str(data["providers"].get("polystrata_api_key", "")),
         market=str(data["signal"]["market"]).strip().upper(),
