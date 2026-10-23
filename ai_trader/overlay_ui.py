@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ai_trader.config import Config, load_config
+from ai_trader.config import Config, account_size_for_market, load_config
 from ai_trader.overlay import SignalView, format_age
 from ai_trader.logger import TradeLogger
 from ai_trader.alerts import alert
@@ -314,8 +314,9 @@ class OverlayWindow(QWidget):
             if self._cfg is not None:
                 signal = result.ctx.signal
                 # Compute risk-based quantity and attach to signal.
+                market_account_size = account_size_for_market(self._cfg, signal.market)
                 qty = compute_position_size(
-                    self._cfg.account_size,
+                    market_account_size,
                     self._cfg.risk_per_trade_pct,
                     signal.entry,
                     signal.stop_loss,
@@ -339,7 +340,7 @@ class OverlayWindow(QWidget):
         if active is not None:
             self._trade_status.setText(
                 f"ACTIVE MANUAL POSITION: {active['side'].upper()} {active['quantity']} "
-                f"{active['symbol']} @ {float(active['actual_entry']):g} · "
+                f"{active['symbol']} @ {float(active['actual_entry']):g} {active.get('currency') or ''} · "
                 "recorded only; no order was placed"
             )
             self._entered_button.setEnabled(False)
@@ -404,16 +405,27 @@ class OverlayWindow(QWidget):
         if not accepted:
             return
         guessed_quantity = getattr(signal, "quantity", None)
-        quantity_default = max(1, round(float(guessed_quantity))) if guessed_quantity else 1
-        quantity, accepted = QInputDialog.getInt(
-            self,
-            "Confirm executed quantity",
-            "Enter the actual whole number of shares you filled (not the suggested quantity):",
-            quantity_default,
-            1,
-            1_000_000_000,
-            1,
-        )
+        quantity_default = max(0.0001, float(guessed_quantity)) if guessed_quantity else 1.0
+        if signal.market == "US":
+            quantity, accepted = QInputDialog.getDouble(
+                self,
+                "Confirm executed quantity",
+                "Enter the actual shares you filled (fractional US shares are allowed where supported):",
+                quantity_default,
+                0.0001,
+                1_000_000_000.0,
+                4,
+            )
+        else:
+            quantity, accepted = QInputDialog.getInt(
+                self,
+                "Confirm executed quantity",
+                "Enter the actual whole number of Indian cash-equity shares you filled:",
+                max(1, round(quantity_default)),
+                1,
+                1_000_000_000,
+                1,
+            )
         if not accepted:
             return
         try:
