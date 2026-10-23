@@ -20,6 +20,8 @@ def _no_config_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "AI_TRADER_PROVIDERS", "AI_TRADER_COOLDOWN", "AI_TRADER_FLIP_HOLD",
         "AI_TRADER_FULL_SCREEN", "AI_TRADER_LOG_HOTKEY", "AI_TRADER_EXCEL_PATH",
         "AI_TRADER_REGION", "AI_TRADER_OPENROUTER_MODEL", "AI_TRADER_OLLAMA_MODEL",
+        "AI_TRADER_ACCOUNT_SIZE_INR", "AI_TRADER_ACCOUNT_SIZE_USD",
+        "AI_TRADER_ACCOUNT_CURRENCY",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
@@ -73,3 +75,41 @@ def test_env_risk_and_confidence_overrides(monkeypatch: pytest.MonkeyPatch) -> N
     assert cfg.risk_per_trade_pct == 2.5
     assert cfg.high_confidence_threshold == 85.0
 
+
+
+def test_auto_market_and_quote_currency_balances(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_trader.config import account_size_for_market
+
+    cfg = load_config()
+    assert cfg.market == "AUTO"
+    assert account_size_for_market(cfg, "NSE") == 0.0
+    assert account_size_for_market(cfg, "US") == 0.0
+
+    cfg.account_size_inr = 150000.0
+    cfg.account_size_usd = 2500.0
+    assert account_size_for_market(cfg, "NSE") == 150000.0
+    assert account_size_for_market(cfg, "BSE") == 150000.0
+    assert account_size_for_market(cfg, "US") == 2500.0
+
+
+def test_legacy_account_size_is_currency_gated() -> None:
+    from ai_trader.config import account_size_for_market
+
+    cfg = load_config()
+    cfg.account_size = 100000.0
+    cfg.account_currency = "INR"
+    assert account_size_for_market(cfg, "NSE") == 100000.0
+    assert account_size_for_market(cfg, "US") == 0.0
+    cfg.account_currency = "USD"
+    assert account_size_for_market(cfg, "US") == 100000.0
+    assert account_size_for_market(cfg, "NSE") == 0.0
+
+
+def test_env_per_market_balances(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_SIZE_INR", "150000")
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_SIZE_USD", "2500")
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_CURRENCY", "USD")
+    cfg = load_config()
+    assert cfg.account_size_inr == 150000.0
+    assert cfg.account_size_usd == 2500.0
+    assert cfg.account_currency == "USD"
