@@ -500,6 +500,13 @@ def _order_chain(cfg: Config) -> list[str]:
         frame never leaves the machine (plan §2.1 privacy guard).
     ``noop`` is always guaranteed last (offline last resort).
     """
+    # Strict local-only mode: aliases resolve to one canonical Strata provider.
+    # Ignore cloud/local alternatives and never append a mock fallback.
+    configured = [name.strip().lower() for name in cfg.provider_chain]
+    if not configured or any(name not in {"polystrata", "strata"} for name in configured):
+        raise ProviderError("Only the local PolyStrata/Strata provider is allowed. Set AI_TRADER_PROVIDERS=polystrata or strata.")
+    return ["polystrata"]
+
     names: list[str] = []
     for name in cfg.provider_chain:
         if name == "noop":
@@ -522,8 +529,7 @@ def _order_chain(cfg: Config) -> list[str]:
 
 
 def make_provider_chain(cfg: Config) -> list[Provider]:
-    """Build provider backends in resolved order, always guaranteeing a ``noop``
-    last resort so the chain never has zero backends (offline-safe).
+    """Build exactly one local PolyStrata/Strata provider; never use a mock fallback.
 
     The effective order (see :func:`_order_chain`) is logged once at INFO so
     the intended chain is visible before any call happens — a keyed cloud
@@ -555,17 +561,19 @@ def make_provider_chain(cfg: Config) -> list[Provider]:
             ))
         else:
             built.append(cls())
-    if not any(p.name == "noop" for p in built):
-        built.append(NoOpProvider())
+    if len(built) != 1 or built[0].name != "polystrata":
+        for provider in built:
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
+        raise ProviderError("Strict local mode requires exactly one PolyStrata/Strata provider; no fallback providers are enabled.")
     return built
 
 
 class VisionClient:
     """Resolves an analysis through the fallback chain behind the RateGuard.
 
-    With rotation enabled (default), the effective provider order rotates each
-    call so first-choice is spread across the chain (plan §3); ``noop`` is
-    pinned last as the offline last resort.
+    Strict local mode has exactly one provider and never rotates to a mock or cloud backend.
     """
 
     def __init__(
