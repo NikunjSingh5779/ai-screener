@@ -365,6 +365,7 @@ class LMStudioProvider:
                 }
             ],
             "max_tokens": DEFAULT_MAX_TOKENS,
+            "temperature": 0.1,
         }
         try:
             response = self._client.post(url, json=payload)
