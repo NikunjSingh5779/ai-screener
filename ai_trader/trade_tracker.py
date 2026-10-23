@@ -161,7 +161,10 @@ class ManualTradeTracker:
         if self._active is None:
             raise ManualTradeError("There is no active manual trade to close.")
         exit_price = self._finite_positive(actual_exit, "Actual exit price")
-        timestamp = float(exited_at if exited_at is not None else datetime.now().timestamp())
+        try:
+            timestamp = float(exited_at if exited_at is not None else datetime.now().timestamp())
+        except (TypeError, ValueError) as exc:
+            raise ManualTradeError("Exit timestamp is invalid.") from exc
         if not math.isfinite(timestamp) or timestamp < float(self._active["entered_at"]):
             raise ManualTradeError("Exit timestamp cannot precede entry timestamp.")
 
