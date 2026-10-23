@@ -369,6 +369,10 @@ class LMStudioProvider:
             ],
             "max_tokens": LOCAL_MAX_TOKENS,
             "temperature": 0.1,
+            # Strata supports reasoning_effort="none"; this is a compact
+            # chart-reading task, and hidden reasoning previously exhausted
+            # the completion budget before the JSON answer was emitted.
+            "reasoning_effort": "none",
         }
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
