@@ -24,61 +24,56 @@ The default market selection is `AUTO`. The model is prompted to identify the vi
 - The old `risk.account_size` key remains for backward compatibility and is used only in the currency declared by `risk.account_currency` (default INR). No FX conversion is guessed.
 - The supported market sessions and symbols must be clear from the chart. This is screenshot-based market identification, not a live market-data feed or a guarantee that the screenshot is fresh.
 
-## Local model — no API key
+## Local model — PolyStrata / Strata (recommended for your setup)
 
-The app already supports a local Ollama vision endpoint and a local OpenAI-compatible endpoint (LM Studio/llama.cpp). Ollama is at `http://localhost:11434`; LM Studio defaults to `http://localhost:1234/v1`.
+You use [PolyStrata](https://github.com/VecSzn/PolyStrata) and [Strata](https://github.com/Niko1221/Strata). Both expose an OpenAI-compatible local API at `http://127.0.0.1:8080/v1` by default. PolyStrata offers image-capable Qwen3.6 and Tiel models; Strata serves Qwen3.8-Flash-Next with image input when enabled. The screener's `polystrata` provider sends the captured chart as an `image_url` message to that local endpoint.
 
-### Ollama (lowest-friction option)
-
-Install Ollama, then test the app with a supported image model, for example:
+Start ONE of the runtimes and load an image-capable model. In the runtime UI or terminal, verify the model exposes image input. Then check the local endpoint:
 
 ```powershell
-ollama pull qwen2.5-vl:7b
-ollama list
+Invoke-RestMethod http://127.0.0.1:8080/health
+Invoke-RestMethod http://127.0.0.1:8080/v1/models
 ```
 
-In `config.toml`, retain `ollama = "qwen2.5-vl:7b"` and set the provider chain to local-only for predictable testing:
+Copy `config.example.toml` to `config.toml`; the example sets local-only `chain = ["polystrata", "noop"]`, base URL `http://127.0.0.1:8080/v1`, and model ID `strata`. If `/v1/models` reports another model ID, set `[providers.models].polystrata` to that exact ID. For example:
 
 ```toml
 [providers]
-chain = ["ollama", "noop"]
+chain = ["polystrata", "noop"]
+polystrata_base_url = "http://127.0.0.1:8080/v1"
+polystrata_api_key = "" # local default; set if you configured API auth
+
+[providers.models]
+polystrata = "strata" # replace with the ID returned by /v1/models
 ```
 
-Then run:
+Then run a single read first:
 
 ```powershell
 python -m ai_trader.cli --once
 python -m ai_trader.cli --overlay
-# Only after confirming the region + readings:
+# Only after confirming the region and real model response:
 python -m ai_trader.cli --overlay --watch
 ```
 
-The `noop` provider is a deterministic test mock, **not an actual market analysis**. If it served the result, do not treat the output as a trading signal. The startup log prints the effective provider chain and each successful response's provider/model.
+If you configure an API key on PolyStrata/Strata, set `polystrata_api_key` to that key. Keep the server bound to `127.0.0.1`; do not expose it to your LAN for this local desktop workflow. The exact API model ID is runtime-specific, so do not assume that every installed model reports the default name.
 
-### Larger local vision models
+### Choosing between your local models
 
-Qwen3.6-35B-A3B is multimodal, but common 4-bit GGUF builds are around 20–23 GB before runtime context/cache, so they cannot reside fully in 12 GB VRAM. Partial GPU offload to system RAM is possible with a compatible engine, but latency can rise substantially. Verify actual model format, vision projector, engine support, RAM use, and end-to-end latency before making it the default. Do not confuse 3B active parameters with a 3 GB model.
+- **First baseline:** an image-enabled Qwen3.6-35B-A3B or other vision-capable PolyStrata model. It is designed to read images; on 12 GB VRAM, expect some weight/vision processing to use system RAM and benchmark the full request latency.
+- **Second comparison:** Qwen3.8-Flash-Next through Strata, with image input enabled. Compare chart identification, price-level abstention and end-to-end latency against Qwen3.6.
+- **Tiel Coder 35B-A3B:** PolyStrata documents it as image-capable, but its coder specialization makes it a comparison candidate rather than my first chart-reading choice.
+- Run one local model server at a time on port 8080 unless you have deliberately changed the port. Switch models in the runtime, check `/v1/models`, then rerun the screener.
 
-The ISTA-DASLab Qwen3.8-Flash-Next GSQ-RCO Coder IQ1_M artifact is an experimental code-specialized, expert-pruned multimodal model. Its first shard alone is about 29.6 GB and must reside in memory; the second 28.8 GB n-gram table can be memory-mapped from SSD. It is not a good default for this screenshot-reading app on a 12 GB GPU, despite the low-bit name. Use it for offline coding experiments only if your host RAM/SSD and serving engine can handle it, not as the first runtime to debug.
+Do not use a model's coding benchmark as evidence of chart-reading accuracy. Compare both models on the same set of timestamped TradingView screenshots, with human-verified ticker/timeframe/price levels and measured latency. If the response is from `noop/mock`, the panel must show TEST MODE and the output is not a market signal.
 
-## Local OpenAI-compatible endpoint
+### Alternate local backends
 
-For a vision-capable GGUF in llama.cpp, confirm the matching multimodal projector (`mmproj`) and use your engine's OpenAI-compatible server. Configure:
+The project still supports Ollama and LM Studio / generic OpenAI-compatible endpoints. Set `AI_TRADER_PROVIDERS` to choose the chain explicitly; do not leave unused cloud backends in the chain if your requirement is no cloud requests.
 
-```powershell
-$env:AI_TRADER_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
-$env:AI_TRADER_LMSTUDIO_MODEL = "the-model-id-returned-by-v1-models"
-$env:AI_TRADER_PROVIDERS = "lmstudio,noop"
-python -m ai_trader.cli --once
-```
-
-For the app to submit images, the loaded model **must be vision-enabled** and its serving engine must support OpenAI-compatible `image_url` content. Check the endpoint before starting the app:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:1234/v1/models
-```
-
-A text-only coder does not become a vision model simply because the client sends an image.
+- Ollama default: `http://127.0.0.1:11434`.
+- LM Studio default: `http://127.0.0.1:1234/v1`.
+- PolyStrata / Strata default: `http://127.0.0.1:8080/v1`.
 
 ## Safety, privacy, and testing
 
