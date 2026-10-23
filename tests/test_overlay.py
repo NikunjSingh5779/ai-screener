@@ -271,3 +271,15 @@ def test_configure_high_dpi() -> None:
 
     configure_high_dpi()
 
+
+
+def test_overlay_warns_when_noop_mock_serves_signal() -> None:
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.cli import ReadResult
+
+    ctx = _ctx(model="noop/mock")
+    win = OverlayWindow()
+    win._on_signal(ReadResult(ctx=ctx, elapsed=0.1))
+    assert "TEST MODE" in win.snapshot()["status"]
+    win.close()
+    app.processEvents()
