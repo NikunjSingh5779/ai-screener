@@ -81,7 +81,7 @@ The project still supports Ollama and LM Studio / generic OpenAI-compatible endp
 - Full-screen capture is local-only; prefer the smallest possible chart region to reduce privacy exposure and vision token/latency costs.
 - Start with `--once`; use `--overlay --watch` only after validating signals manually. Configure a realistic refresh interval: every image analysis may be slow and unchanged frames are skipped.
 - Confidence is model-estimated, not calibrated probability. Never treat AI output as an instruction to enter a trade.
-- Directional signals with visible entry/stop/target are screened for a minimum 1.5:1 reward/risk ratio; lower-ratio suggestions become WATCH with actionable levels cleared. This is a configurable-by-code heuristic, not evidence of profitability.
+- Directional signals with visible entry/stop/target are screened for a minimum 1.5:1 reward/risk ratio; lower-ratio suggestions become WATCH with actionable levels cleared. This is a screening heuristic, not evidence of profitability.
 - Position sizing is advisory math only. It assumes the provided entry/stop are correct, does not account for slippage/fees/lot sizes, and never places an order.
 - `noop/mock` exists for software tests only. Never act on mock output.
 - Run the offline test suite before use: `python -m pytest -q`.
