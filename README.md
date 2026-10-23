@@ -35,6 +35,15 @@ Invoke-RestMethod http://127.0.0.1:8080/health
 Invoke-RestMethod http://127.0.0.1:8080/v1/models
 ```
 
+The local request now uses a more detailed chart-reading checklist, `reasoning_effort = "medium"`, and `max_tokens = 4096` for the response. The output-token cap is not the prompt-reading cap: Strata's “reading the prompt” count shows the actual input it processed, and the expanded instructions should make that number higher than the previous ~747-token prompt. The exact count depends on the tokenizer and selected market notes. This does not force the model to use all 4,096 output tokens or guarantee better trading decisions.
+
+The model's context window is a separate Strata runtime setting. Inspect what the loaded server actually reports rather than blindly setting it higher:
+```powershell
+Invoke-RestMethod http://127.0.0.1:8080/props | ConvertTo-Json -Depth 8
+Invoke-RestMethod http://127.0.0.1:8080/v1/models | ConvertTo-Json -Depth 8
+```
+Use the reported context limit and image-input capability as the source of truth. The local app's request cap cannot enlarge the context window compiled/configured in the server.
+
 Copy `config.example.toml` to `config.toml`; the example sets local-only `chain = ["polystrata", "noop"]`, base URL `http://127.0.0.1:8080/v1`, and model ID `strata`. If `/v1/models` reports another model ID, set `[providers.models].polystrata` to that exact ID. For example:
 
 ```toml
