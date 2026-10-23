@@ -125,6 +125,8 @@ def _emit_signal(cfg, result: ReadResult) -> None:
     Advisory only: this prints and beeps; it never places a trade.
     """
     signal = result.ctx.signal
+    if result.ctx.model == "noop/mock":
+        print("\n[TEST MODE] No vision model produced this output. Do not treat it as a market signal.", file=sys.stderr)
     qty = compute_position_size(
         cfg.account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
     )
