@@ -317,7 +317,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    # Launch the floating monitor by default when the app is started without
+    # arguments. Explicit modes such as --once, --watch, or --hotkey preserve
+    # their documented CLI behavior for scripting and troubleshooting.
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    args = build_arg_parser().parse_args(raw_args)
+    if not raw_args:
+        args.overlay = True
+        args.watch = True
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     cfg = load_config(args.config)
