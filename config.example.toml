@@ -11,8 +11,12 @@ min_flip_hold_seconds = 60
 
 [providers]
 # Strictly local; noop is a software-test fallback, never actual analysis.
-chain = ["ollama", "noop"]
+# PolyStrata/Strata model server uses localhost:8080/v1 by default.
+# Set chain to ["polystrata", "noop"] when using that model server.
+chain = ["polystrata", "noop"]
 cooldown_seconds = 45
+polystrata_base_url = "http://127.0.0.1:8080/v1"
+polystrata_api_key = ""
 
 [providers.budget]
 calls_per_minute = 4
@@ -23,6 +27,7 @@ openrouter = "google/gemma-4-31b-it:free"
 anthropic = "claude-sonnet-5"
 ollama = "qwen2.5-vl:7b"
 lmstudio = "local-model"
+polystrata = "strata"
 
 [signal]
 # AUTO identifies NSE/BSE vs US from the visible TradingView exchange label.
