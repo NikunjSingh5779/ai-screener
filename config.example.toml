@@ -1,7 +1,6 @@
 # Local-first configuration for AI Trader. Copy to config.toml before running.
 
 [capture]
-# Restrict to the chart only; values are pixels from the primary monitor origin.
 region = { left = 0, top = 0, width = 1280, height = 720 }
 monitor = 1
 full_screen = false
@@ -11,7 +10,7 @@ interval_seconds = 15
 min_flip_hold_seconds = 60
 
 [providers]
-# Strictly local; noop is an offline software-test fallback, never real analysis.
+# Strictly local; noop is a software-test fallback, never actual analysis.
 chain = ["ollama", "noop"]
 cooldown_seconds = 45
 
