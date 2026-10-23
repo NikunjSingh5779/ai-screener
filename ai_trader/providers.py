@@ -369,11 +369,12 @@ class LMStudioProvider:
             ],
             "max_tokens": LOCAL_MAX_TOKENS,
             "temperature": 0.1,
-            # Strata supports reasoning_effort="none"; this is a compact
-            # chart-reading task, and hidden reasoning previously exhausted
-            # the completion budget before the JSON answer was emitted.
-            "reasoning_effort": "none",
         }
+        # PolyStrata supports this OpenAI-compatible extension. Disable hidden
+        # reasoning for a compact chart read so the JSON signal fits the budget;
+        # don't send this Strata-specific option to other LM Studio-compatible APIs.
+        if self.name in {"polystrata", "strata"}:
+            payload["reasoning_effort"] = "none"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             response = self._client.post(url, json=payload, headers=headers)
