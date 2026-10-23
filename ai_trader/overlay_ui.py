@@ -75,6 +75,8 @@ class OverlayWindow(QWidget):
     read_requested = pyqtSignal()
     #: Request trade logging (hotkey or menu). Marshalled to GUI thread.
     log_requested = pyqtSignal()
+    #: Toggle periodic screen monitoring from the right-click menu.
+    watch_toggle_requested = pyqtSignal()
     #: Fired when the window is closed (run_overlay uses it to quit the app).
     closed = pyqtSignal()
     #: Transient status text (e.g. "Reading…") marshalled to the GUI thread.
@@ -87,8 +89,10 @@ class OverlayWindow(QWidget):
         trade_logger: TradeLogger | None = None,
         cfg: Config | None = None,
         manual_tracker: ManualTradeTracker | None = None,
+        watch_enabled: bool = False,
     ) -> None:
         super().__init__()
+        self._watch_enabled = watch_enabled
         self._view: SignalView | None = None
         self._ctx: "SignalContext" | None = None
         self._drag_offset: tuple[float, float] | None = None
@@ -504,14 +508,27 @@ class OverlayWindow(QWidget):
         menu = QMenu(self)
         read_action = menu.addAction("Read now")
         log_action = menu.addAction("Log trade")
+        watch_action = menu.addAction(
+            "Pause monitoring" if self._watch_enabled else "Resume monitoring"
+        )
         quit_action = menu.addAction("Quit")
         chosen = menu.exec(event.globalPos())
         if chosen is read_action:
             self.read_requested.emit()
         elif chosen is log_action:
             self.log_requested.emit()
+        elif chosen is watch_action:
+            self.watch_toggle_requested.emit()
         elif chosen is quit_action:
             self.close()
+
+    def set_watch_enabled(self, enabled: bool) -> None:
+        """Update monitoring state and the visible status line."""
+        self._watch_enabled = enabled
+        if enabled:
+            self.set_status("Monitoring active — right-click to pause")
+        else:
+            self.set_status("Monitoring paused — right-click to resume")
 
     def log_current_signal(self) -> None:
         if self._trade_logger is None:
@@ -559,8 +576,15 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
         trade_logger=trade_logger,
         cfg=cfg,
         manual_tracker=manual_tracker,
+        watch_enabled=watch,
     )
-    window.set_status(f"Ready — press {hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log")
+    if watch:
+        window.set_status(
+            f"Monitoring every {cfg.interval_seconds:g}s — right-click to pause; "
+            f"{hotkey.upper()} to read now"
+        )
+    else:
+        window.set_status(f"Ready — press {hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log")
     window.show()
 
     busy_lock = threading.Lock()
@@ -597,14 +621,24 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     window.read_requested.connect(perform_read)
     window.closed.connect(app.quit)
 
-    poll_timer: QTimer | None = None
+    poll_timer = QTimer(window)
+    poll_timer.timeout.connect(lambda: perform_read(skip_unchanged=True))
+    poll_interval_ms = max(1_000, round(cfg.interval_seconds * 1_000))
     if watch:
-        poll_timer = QTimer(window)
-        poll_timer.timeout.connect(lambda: perform_read(skip_unchanged=True))
-        poll_timer.start(max(1_000, round(cfg.interval_seconds * 1_000)))
-        window.closed.connect(poll_timer.stop)
-        window.set_status(f"Watching every {cfg.interval_seconds:g}s — press {hotkey.upper()} to force a read")
+        poll_timer.start(poll_interval_ms)
         QTimer.singleShot(0, lambda: perform_read(skip_unchanged=True))
+
+    def toggle_monitoring() -> None:
+        if poll_timer.isActive():
+            poll_timer.stop()
+            window.set_watch_enabled(False)
+        else:
+            poll_timer.start(poll_interval_ms)
+            window.set_watch_enabled(True)
+            perform_read(skip_unchanged=True)
+
+    window.watch_toggle_requested.connect(toggle_monitoring)
+    window.closed.connect(poll_timer.stop)
 
     keyboard = None
     try:
