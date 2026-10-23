@@ -158,7 +158,13 @@ def _emit_signal(cfg, result: ReadResult) -> None:
         guess = signal.position_size_pct if signal.position_size_pct is not None else "n/a"
         sizing = f"size | model guess {guess}% | risk-sized qty {qty:g}"
     else:
-        sizing = "size | position sizing unavailable — set risk.account_size in config.toml"
+        if signal.market == "US":
+            balance_hint = "risk.account_size_usd (USD)"
+        elif signal.market in {"NSE", "BSE"}:
+            balance_hint = "risk.account_size_inr (INR)"
+        else:
+            balance_hint = "a market-specific account balance"
+        sizing = f"size | position sizing unavailable — configure {balance_hint} in config.toml"
     print("\n--- SIGNAL ---")
     print(json.dumps(signal.model_dump(), indent=2))
     print(f"provider/model: {result.ctx.model}   ({result.elapsed:.1f}s)")
