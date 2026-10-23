@@ -37,6 +37,19 @@ Invoke-RestMethod http://127.0.0.1:8080/v1/models
 
 The local request now uses a more detailed chart-reading checklist, `reasoning_effort = "medium"`, and `max_tokens = 4096` for the response. The output-token cap is not the prompt-reading cap: Strata's “reading the prompt” count shows the actual input it processed, and the expanded instructions should make that number higher than the previous ~747-token prompt. The exact count depends on the tokenizer and selected market notes. This does not force the model to use all 4,096 output tokens or guarantee better trading decisions.
 
+### Increase image detail for chart reading (Strata setting)
+
+On the official Strata runtime, the CPU image reader used on GPUs below 24 GB can default to a maximum of 300 image tokens. That is separate from the text prompt's token count. For chart labels, small price-axis text and indicator names, raise the active model config's `vision.max_tokens` to `1024`. Strata documents this as a higher-detail option; image encoding takes longer, especially on CPU. If the current config already has a `vision` object, preserve its other keys and change only `max_tokens` rather than replacing the object. See the [Strata image-token documentation](https://github.com/Niko1221/Strata/blob/main/docs/DETAILS.md#images).
+
+Example fragment to merge into the active `strata-<model>.json` file (do not overwrite unrelated settings):
+```json
+"vision": {
+  "max_tokens": 1024
+}
+```
+
+For the current 12 GB GPU setup, keep the chart capture region tight and test latency before leaving continuous monitoring running. Do not raise the context window just to fix chart reading: context is a separate total-token budget, and a ~1K text prompt is far below even a modest context window. The image-token limit controls visual detail; the prompt checklist controls what the model is asked to look for.
+
 The model's context window is a separate Strata runtime setting. Inspect what the loaded server actually reports rather than blindly setting it higher:
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8080/props | ConvertTo-Json -Depth 8
