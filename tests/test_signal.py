@@ -388,6 +388,16 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
 
 
+def test_prompt_includes_detailed_chart_reading_checklist() -> None:
+    prompt = SignalEngine().build_prompt()
+    assert "Chart-reading procedure" in prompt
+    assert "latest price label, price scale and time axis" in prompt
+    assert "Never invent a price" in prompt
+    assert "Do not claim a candle has closed" in prompt
+    assert "reasoning" in prompt
+    assert "at least 1.5 times the entry-to-stop distance" in prompt
+
+
 def test_auto_market_prompt_contains_indian_and_us_guidance() -> None:
     prompt = SignalEngine(market="AUTO", market_notes=MARKET_NOTES).build_prompt()
     assert "Market hint: AUTO" in prompt
