@@ -87,26 +87,25 @@ class Provider(Protocol):
 
 
 class NoOpProvider:
-    """Deterministic offline mock. Returns a schema-shaped signal so the whole
-    pipeline runs and is testable with zero API keys and zero spend."""
+    """Deterministic offline mock. Never represents real market analysis."""
 
     name = "noop"
 
     def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
-        del image_b64, mime, prompt  # unused by the mock
+        del image_b64, mime, prompt
         return ProviderResult(
             text=json.dumps(
                 {
                     "action": "hold",
-                    "confidence": 50,
+                    "confidence": 0,
                     "entry": None,
                     "stop_loss": None,
                     "target": None,
                     "position_size_pct": None,
-                    "timeframe": "15m",
+                    "timeframe": "",
                     "reasoning": (
-                        "NoOp provider: no API key configured. "
-                        "This is a mock signal for offline testing."
+                        "TEST MODE ONLY: no vision model produced this output. "
+                        "Do not interpret as a market signal or trade."
                     ),
                     "market": "",
                     "symbol": "",
