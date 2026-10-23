@@ -34,7 +34,7 @@ Schema (use null when a level is not visible on the chart; never guess):
   "position_size_pct": <0-100 number or null>,
   "timeframe": "<e.g. 15m, 1h, 1d>",
   "reasoning": "<1-2 sentence rationale>",
-  "market": "<NSE | BSE | US | Crypto, infer from the chart>",
+  "market": "<NSE | BSE | US; infer only from a clearly visible exchange/symbol label>",
   "symbol": "<ticker inferred from the chart>"
 }}
 
@@ -47,8 +47,9 @@ Guidelines:
 - Separate what is directly visible from interpretation in the reasoning.
 - Advisory only — never imply order execution.
 
-Market hint: {market}. Symbol hint: {symbol_hint}.
+Market hint: {market}. The chart may show an Indian-listed stock (NSE/BSE, INR) or a US-listed stock (NYSE/NASDAQ/other US exchange, USD). Infer only from a visible ticker/exchange label. Never guess an exchange from a ticker alone when ambiguous. If the market/exchange, symbol, quote currency, or relevant session cannot be identified, return "watch" with missing levels and explain the uncertainty.
 
+Symbol hint: {symbol_hint}.
 Market notes: {market_notes}"""
 
 
@@ -90,7 +91,7 @@ class TradingSignal(BaseModel):
     )
     timeframe: str = Field(default="", description="e.g. 15m, 1h, 1d")
     reasoning: str = Field(default="", description="brief model rationale")
-    market: str = Field(default="", description="NSE | BSE | US | Crypto")
+    market: str = Field(default="", description="NSE | BSE | US")
     symbol: str = Field(default="", description="ticker inferred from the chart")
 
     @field_validator("action", mode="before")
@@ -137,6 +138,46 @@ class TradingSignal(BaseModel):
     def _coerce_none_to_str(cls, v: object) -> object:
         """Allow model responses to use null for optional descriptive fields."""
         return "" if v is None else v
+
+    @field_validator("market", mode="before")
+    @classmethod
+    def _normalize_market(cls, v: object) -> object:
+        """Normalize common TradingView exchange labels to supported market codes."""
+        if not isinstance(v, str):
+            return v
+        raw = v.strip().upper()
+        if not raw:
+            return ""
+        token = raw.split(":", 1)[0].strip()
+        compact = " ".join(raw.replace("_", " ").split())
+        if token in {"NSE", "NSEI", "NSEINDIA"} or compact in {
+            "INDIA", "INDIAN EQUITIES", "NSE CASH", "NSE EQUITIES",
+        }:
+            return "NSE"
+        if token in {"BSE", "BSEINDIA", "BOM"} or compact in {"BSE CASH", "BSE EQUITIES"}:
+            return "BSE"
+        if token in {
+            "NYSE", "NASDAQ", "NASDAQGS", "NASDAQGM", "NASDAQCM", "NYSEARCA",
+            "NYSEAMERICAN", "AMEX", "ARCA", "CBOE", "IEX", "US",
+        } or compact in {"USA", "UNITED STATES", "US EQUITIES", "US STOCKS", "NYSE/NASDAQ"}:
+            return "US"
+        return raw
+
+    @field_validator("symbol", mode="before")
+    @classmethod
+    def _normalize_symbol(cls, v: object) -> object:
+        """Remove a recognized exchange prefix (e.g. NASDAQ:TSLA) from a ticker."""
+        if not isinstance(v, str):
+            return v
+        symbol = v.strip().upper()
+        if ":" in symbol:
+            exchange, ticker = symbol.split(":", 1)
+            if exchange in {
+                "NSE", "BSE", "NYSE", "NASDAQ", "NASDAQGS", "NASDAQGM",
+                "NASDAQCM", "NYSEARCA", "NYSEAMERICAN", "AMEX", "ARCA", "CBOE", "IEX",
+            } and ticker.strip():
+                return ticker.strip()
+        return symbol
 
     def validate_action(self) -> TradingSignal:
         """Ensure the model returned one of the supported signal actions."""
@@ -209,10 +250,17 @@ class SignalEngine:
         self._last_direction: dict[str, tuple[str, float]] = {}
 
     def build_prompt(self, symbol_hint: str | None = None) -> str:
+        if self.market == "AUTO":
+            note_keys = ("NSE", "BSE", "US")
+            market_note = "\\n".join(
+                self.market_notes[key] for key in note_keys if key in self.market_notes
+            )
+        else:
+            market_note = self.market_notes.get(self.market, "")
         return self.prompt_template.format(
             market=self.market,
             symbol_hint=(symbol_hint or self.symbol_hint) or "unknown",
-            market_notes=self.market_notes.get(self.market, ""),
+            market_notes=market_note,
         )
 
     @staticmethod
@@ -224,6 +272,13 @@ class SignalEngine:
             logger.error("signal validation failed on raw text: %s", text)
             raise
         signal.quantity = None  # Ensure model never sets risk quantity
+        # Currency is determined by the normalized market, never trusted to the VLM.
+        if signal.market in {"NSE", "BSE"}:
+            signal.currency = "INR"
+        elif signal.market == "US":
+            signal.currency = "USD"
+        else:
+            signal.currency = None
         return _enforce_structure(signal)
 
     def guard_flip(self, symbol: str, signal: TradingSignal, now: float | None = None) -> bool:
