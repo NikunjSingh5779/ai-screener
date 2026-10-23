@@ -13,7 +13,7 @@ Copy-Item config.example.toml config.toml
 python -m pytest -q
 ```
 
-With no command-line arguments, the app opens the floating overlay and starts monitoring automatically. Right-click the overlay to pause/resume monitoring, read once, log, or quit. Set `[capture].region` in `config.toml` to the chart's pixel coordinates and keep the overlay outside that region; otherwise, the overlay's changing text can make the captured image appear changed. Start with a small chart-only region and verify it before leaving monitoring enabled.
+With no command-line arguments, the app opens the floating overlay and starts monitoring automatically. Right-click the overlay to pause/resume monitoring, read once, log, or quit. Set `[capture].region` in `config.toml` to the chart's pixel coordinates and keep the overlay outside that region; otherwise, the overlay's changing text can make the captured image appear changed. Start with a small chart-only region and verify it before leaving monitoring enabled. The displayed polling interval is automatically raised when needed to respect both the local provider's minimum request gap and its configured calls-per-minute budget; changing chart pixels can still trigger a new analysis at each eligible poll.
 
 ## Indian + US equity support
 
