@@ -104,6 +104,8 @@ def test_close_requires_active_trade_and_positive_exit(tmp_path) -> None:
         tracker.close_trade(0, exited_at=1_700_000_200.0)
     with pytest.raises(ManualTradeError, match="precede"):
         tracker.close_trade(101, exited_at=1_700_000_099.0)
+    with pytest.raises(ManualTradeError, match="timestamp"):
+        tracker.close_trade(101, exited_at=float("nan"))
     assert tracker.active_trade is not None
 
 
