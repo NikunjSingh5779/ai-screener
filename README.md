@@ -13,7 +13,7 @@ Copy-Item config.example.toml config.toml
 python -m pytest -q
 ```
 
-Set the screen region in `config.toml` to the chart's pixel coordinates. Start with **manual reads**, not continuous polling, until you have verified the capture region and model output.
+With no command-line arguments, the app opens the floating overlay and starts monitoring automatically. Right-click the overlay to pause/resume monitoring, read once, log, or quit. Set `[capture].region` in `config.toml` to the chart's pixel coordinates and keep the overlay outside that region; otherwise, the overlay's changing text can make the captured image appear changed. Start with a small chart-only region and verify it before leaving monitoring enabled.
 
 ## Indian + US equity support
 
@@ -105,6 +105,8 @@ These files are local user data and are gitignored. Back them up if you need to 
 
 ## Key controls
 
+- Start with no arguments: open the floating overlay and start chart monitoring
+- Right-click overlay: pause/resume monitoring, read once, log, or quit
 - `F8`: read chart once
 - `F9`: log the last displayed signal to the configured Excel tracker
 - **I entered**: record actual manual fill; no order placed
