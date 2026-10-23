@@ -65,6 +65,34 @@ def test_manual_read_still_analyzes_an_unchanged_frame(monkeypatch) -> None:
     assert client.calls == 2
 
 
+def test_once_delay_parses_as_seconds() -> None:
+    args = build_arg_parser().parse_args(["--once", "--delay", "8"])
+    assert args.once is True
+    assert args.delay == 8.0
+
+
+def test_delay_rejects_negative_seconds() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit):
+        build_arg_parser().parse_args(["--once", "--delay", "-1"])
+
+
+def test_once_delay_waits_before_capture_and_closes_client(monkeypatch) -> None:
+    events: list[object] = []
+
+    class ClosingClient:
+        def close(self) -> None:
+            events.append("close")
+
+    monkeypatch.setattr("ai_trader.cli.build_pipeline", lambda cfg: (ClosingClient(), object()))
+    monkeypatch.setattr("ai_trader.cli.do_read", lambda cfg, client, engine: events.append("capture"))
+    monkeypatch.setattr("ai_trader.cli.time.sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    assert main(["--once", "--delay", "5"]) == 0
+    assert events == [("sleep", 5.0), "capture", "close"]
+
+
 def test_watch_flag_parses_with_overlay() -> None:
     args = build_arg_parser().parse_args(["--overlay", "--watch"])
     assert args.overlay is True
