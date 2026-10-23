@@ -25,7 +25,7 @@ DEFAULTS: dict = {
         "min_flip_hold_seconds": 60,
     },
     "providers": {
-        "chain": ["ollama", "lmstudio", "openrouter", "anthropic", "noop"],
+        "chain": ["polystrata"],
         "cooldown_seconds": 30,
         "ollama_base_url": "http://127.0.0.1:11434",
         "lmstudio_base_url": "http://127.0.0.1:1234/v1",
@@ -74,7 +74,7 @@ DEFAULTS: dict = {
     },
     "risk": {
         "account_size": 0.0,  # legacy single-currency setting; interpreted using account_currency
-        "account_currency": "INR",
+        "account_currency": "USD",
         "account_size_inr": 0.0,
         "account_size_usd": 0.0,
         "risk_per_trade_pct": 0.5,
@@ -248,7 +248,7 @@ def load_config(path: str | Path | None = None) -> Config:
         market_notes=dict(data["signal"].get("market_notes", {})),
         high_confidence_threshold=float(data["signal"].get("high_confidence_threshold", 80)),
         account_size=float(data["risk"].get("account_size", 0.0)),
-        account_currency=str(data["risk"].get("account_currency", "INR")).upper(),
+        account_currency=str(data["risk"].get("account_currency", "USD")).upper(),
         account_size_inr=float(data["risk"].get("account_size_inr", 0.0)),
         account_size_usd=float(data["risk"].get("account_size_usd", 0.0)),
         risk_per_trade_pct=float(data["risk"].get("risk_per_trade_pct", 0.5)),
