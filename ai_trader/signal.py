@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 VALID_ACTIONS = {"buy", "sell", "hold", "watch"}
 
-DEFAULT_PROMPT_TEMPLATE = """\\
+DEFAULT_PROMPT_TEMPLATE = """\
 You analyze chart screenshots for cautious, short intraday trades only. Return one valid JSON object, no prose or markdown:
 {{
   "action": "buy" | "sell" | "hold" | "watch",
