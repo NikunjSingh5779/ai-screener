@@ -392,10 +392,33 @@ def test_polystrata_provider_uses_openai_compatible_image_payload_and_auth() -> 
     payload = captured["payload"]
     assert payload["model"] == "Qwen3.6-35B-A3B"
     assert payload["temperature"] == 0.1
-    assert payload["max_tokens"] == 4096
-    assert payload["reasoning_effort"] == "medium"
+    assert payload["max_tokens"] == 8192
+    assert payload["reasoning_effort"] == "low"
+    assert payload["reasoning_budget_tokens"] == 1024
     assert payload["messages"][0]["content"][0]["type"] == "image_url"
     assert payload["messages"][0]["content"][1]["text"] == "describe chart"
+    provider.close()
+
+
+def test_polystrata_handles_thinking_budget_exhaustion_as_length_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["reasoning_budget_tokens"] == 1024
+        return httpx.Response(
+            200,
+            json={
+                "model": "Qwen3.6-35B-A3B",
+                "choices": [{"finish_reason": "length", "message": {"content": ""}}],
+            },
+        )
+
+    provider = PolyStrataProvider(
+        model="Qwen3.6-35B-A3B",
+        base_url="http://127.0.0.1:8080/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ProviderError, match="lower reasoning_effort/reasoning_budget_tokens"):
+        provider.analyze(PNG, "image/png", "describe chart")
     provider.close()
 
 
