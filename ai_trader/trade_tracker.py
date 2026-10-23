@@ -26,6 +26,7 @@ class ManualTradeTracker:
         "trade_id",
         "symbol",
         "market",
+        "currency",
         "side",
         "timeframe",
         "confidence",
@@ -105,7 +106,7 @@ class ManualTradeTracker:
         self,
         ctx: Any,
         actual_entry: float,
-        quantity: int,
+        quantity: float,
         entered_at: float | None = None,
     ) -> dict[str, Any]:
         """Record a user-confirmed fill. Refuses mock signals and duplicate opens."""
@@ -118,21 +119,30 @@ class ManualTradeTracker:
         if str(getattr(ctx, "model", "")).startswith("noop/"):
             raise ManualTradeError("Mock/test output cannot be used to start a tracked trade.")
         price = self._finite_positive(actual_entry, "Actual entry price")
+        market = str(signal.market or "").strip().upper()
+        if market not in {"NSE", "BSE", "US"}:
+            raise ManualTradeError("Market must be confidently identified as NSE, BSE or US.")
         try:
-            qty = int(quantity)
+            qty = float(quantity)
         except (TypeError, ValueError) as exc:
-            raise ManualTradeError("Quantity must be a positive whole number of shares.") from exc
-        if qty <= 0 or float(quantity) != qty:
-            raise ManualTradeError("Quantity must be a positive whole number of shares.")
+            raise ManualTradeError("Quantity must be a positive number of shares.") from exc
+        if not math.isfinite(qty) or qty <= 0:
+            raise ManualTradeError("Quantity must be a finite positive number.")
+        if market in {"NSE", "BSE"} and not qty.is_integer():
+            raise ManualTradeError("Indian cash-equity share quantity must be a whole number.")
 
-        timestamp = float(entered_at if entered_at is not None else datetime.now().timestamp())
+        try:
+            timestamp = float(entered_at if entered_at is not None else datetime.now().timestamp())
+        except (TypeError, ValueError) as exc:
+            raise ManualTradeError("Entry timestamp is invalid.") from exc
         if not math.isfinite(timestamp) or timestamp <= 0:
             raise ManualTradeError("Entry timestamp is invalid.")
 
         trade = {
             "trade_id": uuid.uuid4().hex,
             "symbol": str(signal.symbol or ctx.symbol or "").upper(),
-            "market": str(signal.market or ""),
+            "market": market,
+            "currency": "USD" if market == "US" else "INR",
             "side": side,
             "timeframe": str(signal.timeframe or ""),
             "confidence": float(signal.confidence),
@@ -169,7 +179,7 @@ class ManualTradeTracker:
             raise ManualTradeError("Exit timestamp cannot precede entry timestamp.")
 
         trade = dict(self._active)
-        quantity = int(trade["quantity"])
+        quantity = float(trade["quantity"])
         entry_price = float(trade["actual_entry"])
         side = str(trade["side"])
         gross_pnl = (exit_price - entry_price) * quantity
