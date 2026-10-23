@@ -41,6 +41,7 @@ Rules:
 - If the ticker/exchange, timeframe or price levels are unclear, return "watch" or "hold" and explain briefly.
 - Intraday only: use a clearly visible 5m/15m or other intraday timeframe. For daily/weekly or unknown timeframe, return "watch".
 - Buy only when target > entry > stop_loss; sell only when target < entry < stop_loss. If levels do not clearly support this, use "watch" and null levels.
+- Only suggest buy/sell when the visible target offers at least 1.5 times the entry-to-stop distance; otherwise use "watch" and null levels.
 - "confidence" is a visual clarity score, not a probability of profit.
 - Infer market only from a visible ticker/exchange label. NSE/BSE use INR; US equities use USD. If uncertain, leave market and symbol empty.
 Market hint: {market}. Symbol hint: {symbol_hint}. Market notes: {market_notes}"""
@@ -320,14 +321,14 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
     valid = (target > entry > stop) if action == "buy" else (target < entry < stop)
     if not valid:
         marker = f"[STRUCTURALLY INVALID — downgraded from {action}]"
-        note = f"original action {action}, entry {entry}, stop_loss {stop}, target {target}"
-        signal.action = "watch"
-        signal.entry = signal.stop_loss = signal.target = None
-        signal.position_size_pct = None
-        signal.quantity = None
+        note = (
+            f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
+            f"({marker})"
+        )
+        signal.action = "hold"
         signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
         logger.warning(
-            "structurally invalid %s signal downgraded to watch: entry=%s stop=%s target=%s",
+            "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
             action, entry, stop, target,
         )
         return signal
