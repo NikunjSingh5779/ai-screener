@@ -125,6 +125,8 @@ def test_do_read_emits_risk_sized_quantity(monkeypatch, capsys) -> None:
     )
     cfg = load_config()
     cfg.account_size = 100_000.0
+    cfg.account_currency = "INR"
+    cfg.market = "AUTO"
     cfg.risk_per_trade_pct = 1.0
 
     class SizedClient:
@@ -216,8 +218,10 @@ def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
     engine = SignalEngine(min_flip_hold_seconds=0.0)
     alert = mock.Mock(return_value=True)
 
+    cfg = load_config()
+    cfg.market = "AUTO"
     with mock.patch("ai_trader.cli.alert", alert) as patched:
-        result = do_read(load_config(), _DictStyleCapture(respond("sell").text), engine)
+        result = do_read(cfg, _DictStyleCapture(respond("sell").text), engine)
 
     assert result.ctx is not None
     patched.assert_called_once()
@@ -271,6 +275,7 @@ def test_do_read_suppressed_flip_never_alerts(monkeypatch) -> None:
         lambda cfg: Image.new("RGB", (32, 32), "black"),
     )
     cfg = load_config()
+    cfg.market = "AUTO"
     assignments: list[tuple] = []
 
     class FlipClient:
