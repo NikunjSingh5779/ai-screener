@@ -136,6 +136,7 @@ def test_lmstudio_payload_shape() -> None:
     payload = captured["payload"]
     assert payload["model"] == "qwen2.5-vl-7b-instruct"
     assert payload["temperature"] == 0.1
+    assert payload["reasoning_effort"] == "none"
     messages = payload["messages"]
     assert messages[0]["role"] == "user"
     content = messages[0]["content"]
@@ -391,6 +392,7 @@ def test_polystrata_provider_uses_openai_compatible_image_payload_and_auth() -> 
     payload = captured["payload"]
     assert payload["model"] == "Qwen3.6-35B-A3B"
     assert payload["temperature"] == 0.1
+    assert payload["reasoning_effort"] == "none"
     assert payload["messages"][0]["content"][0]["type"] == "image_url"
     assert payload["messages"][0]["content"][1]["text"] == "describe chart"
     provider.close()
