@@ -37,7 +37,8 @@ LMSTUDIO_DEFAULT_URL = "http://localhost:1234/v1"
 POLYSTRATA_DEFAULT_URL = "http://127.0.0.1:8080/v1"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024  # Keep hosted-provider output conservative; this project is configured local-only.
-LOCAL_MAX_TOKENS = 4096
+LOCAL_MAX_TOKENS = 8192
+LOCAL_REASONING_EFFORT = "low"
 
 
 def _load_dotenv(path: str | Path | None = None) -> bool:
@@ -370,12 +371,12 @@ class LMStudioProvider:
             "max_tokens": LOCAL_MAX_TOKENS,
             "temperature": 0.1,
         }
-        # Strata/PolyStrata supports this OpenAI-compatible extension. Use
-        # medium reasoning so the model can check chart evidence before choosing
-        # an action; the structured response schema still keeps the final answer
-        # concise. Do not send this Strata-specific option to generic LM Studio APIs.
+        # Keep reasoning bounded for structured chart reads. Strata warned that
+        # medium reasoning can consume the entire completion allowance before
+        # emitting JSON; low effort leaves budget for the actual signal.
         if self.name in {"polystrata", "strata"}:
-            payload["reasoning_effort"] = "medium"
+            payload["reasoning_effort"] = LOCAL_REASONING_EFFORT
+            payload["reasoning_budget_tokens"] = 1024
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             response = self._client.post(url, json=payload, headers=headers)
@@ -416,8 +417,11 @@ class LMStudioProvider:
         # value downstream to the JSON parser as if it were a model answer.
         if finish_reason == "length":
             raise ProviderError(
-                f"Local vision response was truncated at max_tokens={LOCAL_MAX_TOKENS} "
-                "(finish_reason='length'); shorten the prompt or raise the local token limit"
+                f"Local vision response reached max_tokens={LOCAL_MAX_TOKENS} "
+                "(finish_reason='length'). If Strata's log says it was still thinking "
+                "and produced no answer, lower reasoning_effort/reasoning_budget_tokens "
+                "in the Strata request or active model config; raising max_tokens alone "
+                "can waste time without leaving room for the JSON signal."
             )
         if not isinstance(text, str) or not text.strip():
             raise ProviderError(
