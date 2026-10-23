@@ -146,6 +146,37 @@ def test_lmstudio_payload_shape() -> None:
     provider.close()
 
 
+@pytest.mark.parametrize(
+    ("content", "finish_reason", "message"),
+    [
+        (None, "stop", "empty or non-text"),
+        ("{\\\"action\\\": \\\"hold\\\"}", "length", "truncated"),
+    ],
+)
+def test_lmstudio_rejects_empty_or_truncated_content(content, finish_reason, message) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "local-model",
+                "choices": [
+                    {
+                        "finish_reason": finish_reason,
+                        "message": {"content": content},
+                    }
+                ],
+            },
+        )
+
+    provider = LMStudioProvider(
+        base_url="http://127.0.0.1:1234/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ProviderError, match=message):
+        provider.analyze(PNG, "image/png", "prompt")
+    provider.close()
+
+
 def test_lmstudio_connection_error_raises_friendly_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("Connection refused")
