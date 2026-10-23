@@ -381,7 +381,7 @@ def test_polystrata_connection_error_mentions_local_vision_server() -> None:
 def test_make_provider_chain_constructs_polystrata_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     from ai_trader.config import load_config
 
-    monkeypatch.setenv("AI_TRADER_PROVIDERS", "polystrata,noop")
+    monkeypatch.setenv("AI_TRADER_PROVIDERS", "polystrata")
     monkeypatch.setenv("AI_TRADER_POLYSTRATA_MODEL", "qwen3.6-custom")
     cfg = load_config()
     providers = make_provider_chain(cfg)
