@@ -392,7 +392,8 @@ def test_polystrata_provider_uses_openai_compatible_image_payload_and_auth() -> 
     payload = captured["payload"]
     assert payload["model"] == "Qwen3.6-35B-A3B"
     assert payload["temperature"] == 0.1
-    assert payload["reasoning_effort"] == "none"
+    assert payload["max_tokens"] == 4096
+    assert payload["reasoning_effort"] == "medium"
     assert payload["messages"][0]["content"][0]["type"] == "image_url"
     assert payload["messages"][0]["content"][1]["text"] == "describe chart"
     provider.close()
