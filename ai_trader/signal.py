@@ -199,8 +199,10 @@ def extract_json(text: str) -> dict:
     """Extract a JSON object from model output that may be fenced or verbose.
 
     Raises:
-        ValueError: if no parseable JSON object is found.
+        ValueError: if output is empty/non-text or no parseable JSON object is found.
     """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("model output is empty or not text")
     cleaned = text.strip()
     # Strip one code fence if present (```json ... ```).
     fence = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL)
