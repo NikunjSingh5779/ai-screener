@@ -22,6 +22,9 @@ def _no_config_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "AI_TRADER_REGION", "AI_TRADER_OPENROUTER_MODEL", "AI_TRADER_OLLAMA_MODEL",
         "AI_TRADER_ACCOUNT_SIZE_INR", "AI_TRADER_ACCOUNT_SIZE_USD",
         "AI_TRADER_ACCOUNT_CURRENCY",
+        "AI_TRADER_POLYSTRATA_MODEL",
+        "AI_TRADER_POLYSTRATA_BASE_URL",
+        "AI_TRADER_POLYSTRATA_API_KEY",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
@@ -113,3 +116,18 @@ def test_env_per_market_balances(monkeypatch: pytest.MonkeyPatch) -> None:
     assert cfg.account_size_inr == 150000.0
     assert cfg.account_size_usd == 2500.0
     assert cfg.account_currency == "USD"
+
+
+def test_polystrata_settings_load_from_config_and_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = load_config()
+    assert cfg.model_polystrata == "strata"
+    assert cfg.polystrata_base_url == "http://127.0.0.1:8080/v1"
+    assert cfg.polystrata_api_key == ""
+
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_MODEL", "qwen3.6-custom")
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_BASE_URL", "http://127.0.0.1:8081/v1")
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_API_KEY", "test-key")
+    cfg = load_config()
+    assert cfg.model_polystrata == "qwen3.6-custom"
+    assert cfg.polystrata_base_url == "http://127.0.0.1:8081/v1"
+    assert cfg.polystrata_api_key == "test-key"
