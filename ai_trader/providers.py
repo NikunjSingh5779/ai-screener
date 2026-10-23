@@ -376,8 +376,7 @@ class LMStudioProvider:
             data = response.json()
         except httpx.ConnectError as exc:
             raise ProviderError(
-                f"Local OpenAI-compatible vision server not running at {self.base_url}. "
-                "Start PolyStrata/Strata and confirm the model has image input enabled."
+                f"LM Studio not running — start it or configure the local OpenAI-compatible server at {self.base_url}"
             ) from exc
         except httpx.HTTPStatusError as exc:
             raise ProviderError(
@@ -393,7 +392,7 @@ class LMStudioProvider:
         except (KeyError, IndexError, TypeError) as exc:
             raise ProviderError(f"LM Studio response missing content: {data}") from exc
         served_model = data.get("model", self.model)
-        return ProviderResult(text=text, model=f"lmstudio/{served_model}")
+        return ProviderResult(text=text, model=f"{self.name}/{served_model}")
 
     def close(self) -> None:
         self._client.close()
