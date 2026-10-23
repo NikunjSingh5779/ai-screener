@@ -37,6 +37,7 @@ LMSTUDIO_DEFAULT_URL = "http://localhost:1234/v1"
 POLYSTRATA_DEFAULT_URL = "http://127.0.0.1:8080/v1"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
+LOCAL_MAX_TOKENS = 2048
 
 
 def _load_dotenv(path: str | Path | None = None) -> bool:
@@ -366,7 +367,7 @@ class LMStudioProvider:
                     ],
                 }
             ],
-            "max_tokens": DEFAULT_MAX_TOKENS,
+            "max_tokens": LOCAL_MAX_TOKENS,
             "temperature": 0.1,
         }
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
@@ -395,9 +396,29 @@ class LMStudioProvider:
         if isinstance(data, dict) and "error" in data:
             raise ProviderError(f"LM Studio returned an error: {data['error']}")
         try:
-            text = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ProviderError(f"LM Studio response missing content: {data}") from exc
+            choice = data["choices"][0]
+            message = choice["message"]
+            text = message.get("content")
+            finish_reason = choice.get("finish_reason")
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise ProviderError(
+                f"LM Studio response missing a valid choice/message structure: {data}"
+            ) from exc
+
+        # Some OpenAI-compatible runtimes return HTTP 200 with null/empty
+        # content, or truncate generation at the token limit. Never pass that
+        # value downstream to the JSON parser as if it were a model answer.
+        if finish_reason == "length":
+            raise ProviderError(
+                f"Local vision response was truncated at max_tokens={LOCAL_MAX_TOKENS} "
+                "(finish_reason='length'); shorten the prompt or raise the local token limit"
+            )
+        if not isinstance(text, str) or not text.strip():
+            raise ProviderError(
+                "Local vision server returned empty or non-text message.content "
+                f"(finish_reason={finish_reason!r}); inspect Strata's model output/template"
+            )
+
         served_model = data.get("model", self.model)
         return ProviderResult(text=text, model=f"{self.name}/{served_model}")
 
