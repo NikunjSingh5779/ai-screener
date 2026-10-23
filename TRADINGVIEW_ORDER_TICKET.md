@@ -2,6 +2,15 @@
 
 This document describes how the screener should advise a person filling out the TradingView order ticket. The application remains advisory-only: it does not interact with the ticket, submit orders, or assume a user has entered/exited until they confirm it manually.
 
+## Cross-market handling: Indian and US equities
+
+AI Screener should support both Indian cash equities (NSE/BSE, INR) and US-listed equities (USD) based on a clearly visible exchange/ticker label. It must not assume all prices are INR or all share quantities are whole numbers.
+
+- For NSE/BSE cash equities, quantity should be whole shares; the screener should report INR-based prices and use the INR-configured account balance.
+- For US equities, show USD-based prices and use the USD-configured account balance. Fractional shares can be recorded only when the specific instrument and order ticket support them.
+- If the chart market is unidentified, an exchange mismatch is detected, or the correct quote currency cannot be established, show WATCH/NO TRADE and do not present a fill-ready recommendation.
+- Use NIFTY 50 and BANK NIFTY as context indices by default; they are not cash-equity shares. Do not apply stock share-quantity rules to their futures/options without a separate instrument-specific model.
+
 ## The three order modes in the supplied ticket screenshots
 
 ### Market
