@@ -93,6 +93,21 @@ def test_once_delay_waits_before_capture_and_closes_client(monkeypatch) -> None:
     assert events == [("sleep", 5.0), "capture", "close"]
 
 
+def test_no_args_starts_overlay_with_monitoring(monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    calls: list[tuple[object, str, bool]] = []
+    fake_overlay = SimpleNamespace(
+        run_overlay=lambda cfg, hotkey, watch: calls.append((cfg, hotkey, watch)) or 0
+    )
+    monkeypatch.setitem(sys.modules, "ai_trader.overlay_ui", fake_overlay)
+    monkeypatch.setattr("ai_trader.cli.load_config", lambda path=None: "test-config")
+
+    assert main([]) == 0
+    assert calls == [("test-config", "f8", True)]
+
+
 def test_watch_flag_parses_with_overlay() -> None:
     args = build_arg_parser().parse_args(["--overlay", "--watch"])
     assert args.overlay is True
