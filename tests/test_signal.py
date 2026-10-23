@@ -3,6 +3,8 @@ flip-flop guard."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from ai_trader.signal import SignalEngine, TradingSignal, extract_json
@@ -268,6 +270,54 @@ def test_parse_skips_check_when_levels_missing() -> None:
         '{"action":"buy","confidence":60,"entry":null,"stop_loss":null,"target":null}'
     )
     assert signal.action == "buy"
+
+
+@pytest.mark.parametrize(
+    ("action", "entry", "stop", "target", "expected_ratio"),
+    [
+        ("buy", 212.19, 211.64, 212.30, "0.20:1"),
+        ("sell", 100.0, 105.0, 99.0, "0.20:1"),
+    ],
+)
+def test_parse_downgrades_inadequate_reward_risk_to_watch(
+    action: str, entry: float, stop: float, target: float, expected_ratio: str
+) -> None:
+    signal = SignalEngine.parse(
+        json.dumps(
+            {
+                "action": action,
+                "confidence": 85,
+                "entry": entry,
+                "stop_loss": stop,
+                "target": target,
+                "position_size_pct": 2.0,
+                "timeframe": "15m",
+                "reasoning": "Illustrative setup.",
+                "market": "US",
+                "symbol": "NVDA",
+            }
+        )
+    )
+    assert signal.action == "watch"
+    assert signal.entry is None
+    assert signal.stop_loss is None
+    assert signal.target is None
+    assert signal.position_size_pct is None
+    assert expected_ratio in signal.reasoning
+    assert "minimum 1.50:1" in signal.reasoning
+    assert "original entry" in signal.reasoning
+
+
+def test_parse_keeps_setup_at_minimum_reward_risk_ratio() -> None:
+    # Reward 1.5, risk 1.0 => exactly the configured 1.5:1 threshold.
+    signal = SignalEngine.parse(
+        '{"action":"buy","confidence":70,"entry":100,"stop_loss":99,'
+        '"target":101.5,"timeframe":"15m","market":"US","symbol":"TEST"}'
+    )
+    assert signal.action == "buy"
+    assert signal.entry == 100.0
+    assert signal.stop_loss == 99.0
+    assert signal.target == 101.5
 
 
 def test_parse_keeps_hold_with_backwards_levels() -> None:
