@@ -36,8 +36,8 @@ ANTHROPIC_DEFAULT_URL = "https://api.anthropic.com"
 LMSTUDIO_DEFAULT_URL = "http://localhost:1234/v1"
 POLYSTRATA_DEFAULT_URL = "http://127.0.0.1:8080/v1"
 ANTHROPIC_VERSION = "2023-06-01"
-DEFAULT_MAX_TOKENS = 1024
-LOCAL_MAX_TOKENS = 2048
+DEFAULT_MAX_TOKENS = 1024  # Keep hosted-provider output conservative; this project is configured local-only.
+LOCAL_MAX_TOKENS = 4096
 
 
 def _load_dotenv(path: str | Path | None = None) -> bool:
@@ -370,11 +370,12 @@ class LMStudioProvider:
             "max_tokens": LOCAL_MAX_TOKENS,
             "temperature": 0.1,
         }
-        # PolyStrata supports this OpenAI-compatible extension. Disable hidden
-        # reasoning for a compact chart read so the JSON signal fits the budget;
-        # don't send this Strata-specific option to other LM Studio-compatible APIs.
+        # Strata/PolyStrata supports this OpenAI-compatible extension. Use
+        # medium reasoning so the model can check chart evidence before choosing
+        # an action; the structured response schema still keeps the final answer
+        # concise. Do not send this Strata-specific option to generic LM Studio APIs.
         if self.name in {"polystrata", "strata"}:
-            payload["reasoning_effort"] = "none"
+            payload["reasoning_effort"] = "medium"
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
             response = self._client.post(url, json=payload, headers=headers)
