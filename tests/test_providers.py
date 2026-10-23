@@ -13,6 +13,7 @@ import pytest
 from ai_trader.providers import (
     AnthropicProvider,
     LMStudioProvider,
+    PolyStrataProvider,
     NoOpProvider,
     OpenRouterProvider,
     ProviderError,
@@ -409,3 +410,68 @@ def test_make_provider_chain_logs_resolved_order(caplog, monkeypatch) -> None:
         make_provider_chain(cfg)
     messages = [r.getMessage() for r in caplog.records]
     assert any("provider chain resolved" in m and "openrouter" in m for m in messages)
+
+
+def test_polystrata_provider_uses_openai_compatible_image_payload_and_auth() -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("Authorization")
+        captured["payload"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": "poly-1",
+                "model": "Qwen3.6-35B-A3B",
+                "choices": [{"message": {"content": '{"action":"hold","confidence":40,"market":"NASDAQ","symbol":"TSLA"}'}}],
+            },
+        )
+
+    provider = PolyStrataProvider(
+        model="Qwen3.6-35B-A3B",
+        base_url="http://127.0.0.1:8080/v1",
+        api_key="local-secret",
+        transport=httpx.MockTransport(handler),
+    )
+    result = provider.analyze(PNG, "image/png", "describe chart")
+
+    assert result.model == "polystrata/Qwen3.6-35B-A3B"
+    assert captured["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+    assert captured["auth"] == "Bearer local-secret"
+    payload = captured["payload"]
+    assert payload["model"] == "Qwen3.6-35B-A3B"
+    assert payload["temperature"] == 0.1
+    assert payload["messages"][0]["content"][0]["type"] == "image_url"
+    assert payload["messages"][0]["content"][1]["text"] == "describe chart"
+    provider.close()
+
+
+def test_polystrata_connection_error_mentions_local_vision_server() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("Connection refused")
+
+    provider = PolyStrataProvider(
+        base_url="http://127.0.0.1:9999/v1",
+        transport=httpx.MockTransport(handler),
+    )
+    with pytest.raises(ProviderError, match="Local OpenAI-compatible vision server not running"):
+        provider.analyze(PNG, "image/png", "prompt")
+    provider.close()
+
+
+def test_make_provider_chain_constructs_polystrata_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_trader.config import load_config
+
+    monkeypatch.setenv("AI_TRADER_PROVIDERS", "polystrata,noop")
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_MODEL", "qwen3.6-custom")
+    cfg = load_config()
+    providers = make_provider_chain(cfg)
+    assert providers[0].name == "polystrata"
+    assert isinstance(providers[0], PolyStrataProvider)
+    assert providers[0].model == "qwen3.6-custom"
+    assert providers[0].base_url == "http://127.0.0.1:8080/v1"
+    for provider in providers:
+        close = getattr(provider, "close", None)
+        if callable(close):
+            close()
