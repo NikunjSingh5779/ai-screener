@@ -113,3 +113,22 @@ def test_rejects_non_directional_signal(tmp_path) -> None:
     tracker = ManualTradeTracker(tmp_path / "state.json", tmp_path / "journal.csv")
     with pytest.raises(ManualTradeError, match="BUY or SELL"):
         tracker.open_trade(make_context("hold"), 100, 1, entered_at=1_700_000_100.0)
+
+
+def test_us_trade_supports_fractional_shares_and_records_usd(tmp_path) -> None:
+    ctx = make_context()
+    ctx.signal.market = "US"
+    ctx.signal.symbol = "TSLA"
+    ctx.symbol = "TSLA"
+    ctx.signal.entry = 376.50
+    ctx.signal.stop_loss = 371.50
+    ctx.signal.target = 386.50
+    tracker = ManualTradeTracker(tmp_path / "state.json", tmp_path / "journal.csv")
+
+    opened = tracker.open_trade(ctx, actual_entry=376.50, quantity=0.98, entered_at=1_700_000_100.0)
+    assert opened["quantity"] == 0.98
+    assert opened["currency"] == "USD"
+
+    closed = tracker.close_trade(actual_exit=378.50, exited_at=1_700_000_160.0)
+    assert closed["gross_pnl_before_costs"] == 1.96
+    assert closed["currency"] == "USD"
