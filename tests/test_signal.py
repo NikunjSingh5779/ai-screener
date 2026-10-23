@@ -14,7 +14,7 @@ GOOD_JSON = """{
   "confidence": 72,
   "entry": 245.5,
   "stop_loss": 240.1,
-  "target": 252.0,
+  "target": 255.0,
   "position_size_pct": 4.5,
   "timeframe": "15m",
   "reasoning": "breakout above resistance on volume",
@@ -69,14 +69,14 @@ def test_parse_coerces_model_number_formats() -> None:
           "confidence": "high",
           "entry": "₹24,583",
           "stop_loss": "24,000.50",
-          "target": "$25,100",
+          "target": "$25,500",
           "position_size_pct": "4.5%"
         }"""
     )
     assert signal.confidence == 75.0
     assert signal.entry == 24583.0
     assert signal.stop_loss == 24000.5
-    assert signal.target == 25100.0
+    assert signal.target == 25500.0
     assert signal.position_size_pct == 4.5
 
 
@@ -232,7 +232,7 @@ def test_parse_keeps_valid_buy_levels() -> None:
           "confidence": 72,
           "entry": 245.5,
           "stop_loss": 240.1,
-          "target": 252.0,
+          "target": 255.0,
           "timeframe": "15m",
           "reasoning": "breakout",
           "market": "NSE",
@@ -370,12 +370,12 @@ def test_parse_coerces_price_with_currency_suffix_or_tilde() -> None:
           "confidence": 50,
           "entry": "24,583 INR",
           "stop_loss": "~24000.5",
-          "target": "25100 USD"
+          "target": "25500 USD"
         }"""
     )
     assert signal.entry == 24583.0
     assert signal.stop_loss == 24000.5
-    assert signal.target == 25100.0
+    assert signal.target == 25500.0
 
 
 
