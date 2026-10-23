@@ -235,7 +235,7 @@ class SignalEngine:
 
     def __init__(
         self,
-        market: str = "NSE",
+        market: str = "AUTO",
         symbol_hint: str = "",
         market_notes: dict[str, str] | None = None,
         min_flip_hold_seconds: float = 60.0,
