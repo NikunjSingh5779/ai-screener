@@ -43,6 +43,7 @@ from ai_trader.logger import TradeLogger
 from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
 from ai_trader.trade_tracker import ManualTradeError, ManualTradeTracker
+from ai_trader.rate_guard import minimum_safe_poll_interval_seconds
 
 if TYPE_CHECKING:  # pragma: no cover - type-only; cli is lazily imported at runtime
     from ai_trader.cli import ReadResult
@@ -578,9 +579,15 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
         manual_tracker=manual_tracker,
         watch_enabled=watch,
     )
+    poll_interval_seconds = minimum_safe_poll_interval_seconds(
+        cfg.interval_seconds,
+        cfg.calls_per_minute,
+        cfg.min_interval_seconds,
+    )
+    poll_interval_ms = max(1_000, round(poll_interval_seconds * 1_000))
     if watch:
         window.set_status(
-            f"Monitoring every {cfg.interval_seconds:g}s — right-click to pause; "
+            f"Monitoring every {poll_interval_seconds:g}s — right-click to pause; "
             f"{hotkey.upper()} to read now"
         )
     else:
@@ -623,7 +630,6 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
 
     poll_timer = QTimer(window)
     poll_timer.timeout.connect(lambda: perform_read(skip_unchanged=True))
-    poll_interval_ms = max(1_000, round(cfg.interval_seconds * 1_000))
     if watch:
         poll_timer.start(poll_interval_ms)
         QTimer.singleShot(0, lambda: perform_read(skip_unchanged=True))
