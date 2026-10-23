@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 logger = logging.getLogger(__name__)
 
 VALID_ACTIONS = {"buy", "sell", "hold", "watch"}
+MIN_REWARD_RISK_RATIO = 1.5
 
 DEFAULT_PROMPT_TEMPLATE = """\
 You analyze chart screenshots for cautious, short intraday trades only. Return one valid JSON object, no prose or markdown:
@@ -300,16 +301,14 @@ class SignalEngine:
 
 
 def _enforce_structure(signal: TradingSignal) -> TradingSignal:
-    """Deterministic structural sanity check, independent of model quality.
+    """Apply deterministic sanity checks to directional model suggestions.
 
-    A directional call is only valid when the price levels are ordered
-    correctly — a long buys below and below-target above it; a short sells
-    above and below-target below it. A backwards level set (target above stop
-    on a sell, target below stop on a buy) is a model error that must never
-    reach the overlay or the trade logger as a trade. When invalid, the action
-    is downgraded to ``hold`` and the original numbers are kept in ``reasoning``
-    with a ``[STRUCTURALLY INVALID]`` marker, so the bad read stays visible
-    instead of being silently dropped.
+    BUY/SELL levels must have the correct order and at least
+    MIN_REWARD_RISK_RATIO potential reward for each unit of price risk.
+    Invalid or poor-ratio suggestions are downgraded before they reach sizing,
+    the overlay, or the trade logger. If a suggestion is rejected, actionable
+    levels are cleared and original values are retained in the reasoning.
+    This is a screening heuristic, not a profitability guarantee.
     """
     action = signal.action
     if action not in ("buy", "sell"):
@@ -317,18 +316,39 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
     entry, stop, target = signal.entry, signal.stop_loss, signal.target
     if entry is None or stop is None or target is None:
         return signal
+
     valid = (target > entry > stop) if action == "buy" else (target < entry < stop)
-    if valid:
+    if not valid:
+        marker = f"[STRUCTURALLY INVALID — downgraded from {action}]"
+        note = f"original action {action}, entry {entry}, stop_loss {stop}, target {target}"
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
+        signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
+        logger.warning(
+            "structurally invalid %s signal downgraded to watch: entry=%s stop=%s target=%s",
+            action, entry, stop, target,
+        )
         return signal
-    marker = f"[STRUCTURALLY INVALID — downgraded from {action}]"
-    note = (
-        f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
-        f"({marker})"
-    )
-    signal.action = "hold"
-    signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
-    logger.warning(
-        "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
-        action, entry, stop, target,
-    )
+
+    risk = (entry - stop) if action == "buy" else (stop - entry)
+    reward = (target - entry) if action == "buy" else (entry - target)
+    ratio = reward / risk
+    if ratio < MIN_REWARD_RISK_RATIO:
+        marker = f"[INADEQUATE REWARD/RISK — downgraded from {action}]"
+        note = (
+            f"original entry {entry}, stop_loss {stop}, target {target}; "
+            f"potential reward/risk {ratio:.2f}:1 is below the minimum "
+            f"{MIN_REWARD_RISK_RATIO:.2f}:1"
+        )
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
+        signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
+        logger.warning(
+            "inadequate reward/risk %.2f:1 downgraded %s signal to watch (minimum %.2f:1)",
+            ratio, action, MIN_REWARD_RISK_RATIO,
+        )
     return signal
