@@ -30,6 +30,9 @@ def test_noop_returns_schema_shaped_json() -> None:
     result = NoOpProvider().analyze(PNG, "image/png", "prompt")
     data = json.loads(result.text)
     assert {"action", "confidence", "reasoning"} <= set(data)
+    assert data["action"] == "hold"
+    assert data["confidence"] == 0
+    assert "TEST MODE ONLY" in data["reasoning"]
     assert result.model == "noop/mock"
 
 
