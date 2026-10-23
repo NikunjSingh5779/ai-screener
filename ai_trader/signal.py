@@ -20,37 +20,29 @@ logger = logging.getLogger(__name__)
 
 VALID_ACTIONS = {"buy", "sell", "hold", "watch"}
 
-DEFAULT_PROMPT_TEMPLATE = """\
-You are a trading analyst. The image is a chart screenshot from a trading platform.
-Analyze it and answer ONLY with a single JSON object — no prose, no markdown fences.
-
-Schema (use null when a level is not visible on the chart; never guess):
+DEFAULT_PROMPT_TEMPLATE = """\\
+You analyze chart screenshots for cautious, short intraday trades only. Return one valid JSON object, no prose or markdown:
 {{
   "action": "buy" | "sell" | "hold" | "watch",
-  "confidence": <0-100 number>,
-  "entry": <number or null>,
-  "stop_loss": <number or null>,
-  "target": <number or null>,
-  "position_size_pct": <0-100 number or null>,
-  "timeframe": "<e.g. 15m, 1h, 1d>",
-  "reasoning": "<1-2 sentence rationale>",
-  "market": "<NSE | BSE | US; infer only from a clearly visible exchange/symbol label>",
-  "symbol": "<ticker inferred from the chart>"
+  "confidence": 0-100,
+  "entry": number or null,
+  "stop_loss": number or null,
+  "target": number or null,
+  "position_size_pct": number or null,
+  "timeframe": "visible timeframe or empty",
+  "reasoning": "one short sentence",
+  "market": "NSE" | "BSE" | "US" | "",
+  "symbol": "visible ticker or empty"
 }}
-
-Guidelines:
-- This is a visual chart interpretation task, not a request to predict with certainty.
-- Base every number on legible, visible chart evidence. Never invent a price, symbol, timeframe, indicator value, or candle pattern. Use null when the relevant information cannot be read.
-- If the symbol, timeframe, trend, or price levels are ambiguous, return "watch" or "hold" and explain what cannot be verified.
-- A buy requires entry > stop_loss and target > entry. A sell requires stop_loss > entry and entry > target. If the levels cannot be read confidently, use null levels and "watch".
-- "confidence" is a subjective visual clarity score, not a probability of profit; keep it conservative and never inflate it.
-- Separate what is directly visible from interpretation in the reasoning.
-- Advisory only — never imply order execution.
-
-Market hint: {market}. The chart may show an Indian-listed stock (NSE/BSE, INR) or a US-listed stock (NYSE/NASDAQ/other US exchange, USD). Infer only from a visible ticker/exchange label. Never guess an exchange from a ticker alone when ambiguous. If the market/exchange, symbol, quote currency, or relevant session cannot be identified, return "watch" with missing levels and explain the uncertainty.
-
-Symbol hint: {symbol_hint}.
-Market notes: {market_notes}"""
+Rules:
+- If the screenshot is not a trading chart, return "watch".
+- Never invent a price, symbol, timeframe, exchange, indicator or pattern. Use null for unreadable levels.
+- If the ticker/exchange, timeframe or price levels are unclear, return "watch" or "hold" and explain briefly.
+- Intraday only: use a clearly visible 5m/15m or other intraday timeframe. For daily/weekly or unknown timeframe, return "watch".
+- Buy only when target > entry > stop_loss; sell only when target < entry < stop_loss. If levels do not clearly support this, use "watch" and null levels.
+- "confidence" is a visual clarity score, not a probability of profit.
+- Infer market only from a visible ticker/exchange label. NSE/BSE use INR; US equities use USD. If uncertain, leave market and symbol empty.
+Market hint: {market}. Symbol hint: {symbol_hint}. Market notes: {market_notes}"""
 
 
 def _coerce_price(v: object) -> object:
