@@ -44,7 +44,7 @@ def test_deep_merge_returns_independent_copy() -> None:
     # The nested capture region is untouched by any mutation during load.
     assert DEFAULTS["capture"]["region"] == {"left": 0, "top": 0, "width": 1280, "height": 720}
     assert DEFAULTS["polling"]["interval_seconds"] == 10
-    assert DEFAULTS["providers"]["chain"] == ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
+    assert DEFAULTS["providers"]["chain"] == ["polystrata"]
 
 
 def test_env_override_does_not_leak_between_loads(monkeypatch: pytest.MonkeyPatch) -> None:
