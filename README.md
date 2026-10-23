@@ -1,89 +1,93 @@
-# AI Trader — Floating Real-Time Trading Copilot (Phase 0/2)
+# AI Trader — Local-First Floating Trading Copilot
 
-An always-on-top, screen-watching trading copilot (per `ai-trader-project-plan.md`):
-capture a screen region → send it to a vision LLM → get a structured trading call
-(action, entry, stop-loss, target, position size, confidence). Phase 1 prints it to
-the console; Phase 2 renders it in a floating always-on-top panel over your platform.
+AI Trader is a **screen-reading, advisory-only** desktop copilot. It captures a selected chart region, asks a vision model for a structured interpretation, displays the result in an always-on-top panel, and can log reviewed signals to an Excel workbook. It **does not place orders**.
 
-**This is advisory software. It never places an order.** The tool only tells you what
-it thinks — a hallucinated signal can never cost you money by itself.
-
-Current build: **Phase 0–4** (provider validation, CLI signal reader, floating overlay, 
-continuous polling with fallback rotation, and Excel trade logging). 
-Phases 5–6 (refinement, local fallback) are future work.
-
-## Quick start
+## Quick start (Windows PowerShell)
 
 ```powershell
-python -m venv .venv
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
-
-# 1. Configure your screen region
-Copy-Item config.example.toml config.toml   # then edit the region to your chart window
-
-# 2. Add a provider key (any one — the chain uses whichever is present).
-#    Copy .env.example to .env and fill it in; loading is automatic at startup.
-#    A keyed cloud provider (openrouter/anthropic) becomes the first choice
-#    for every read; local ollama remains the offline fallback.
-Copy-Item .env.example .env   # then edit .env: OPENROUTER_API_KEY=sk-or-...
-
-# 3. Verify a provider can read your chart (Phase 0)
-python scripts\validate_provider.py
-
-# 4. Run the reader (Phase 1) — press F8 to read the region
-python -m ai_trader.cli
+Copy-Item config.example.toml config.toml
+python -m pytest -q
 ```
 
-If the global hotkey needs admin rights on your Windows setup, the CLI automatically
-falls back to an interactive "press Enter to read" loop.
+Set the screen region in `config.toml` to the chart's pixel coordinates. Start with **manual reads**, not continuous polling, until you have verified the capture region and model output.
 
-### Phase 2 — floating overlay
+## Local model — no API key
+
+The app already supports a local Ollama vision endpoint and a local OpenAI-compatible endpoint (LM Studio/llama.cpp). Ollama is at `http://localhost:11434`; LM Studio defaults to `http://localhost:1234/v1`.
+
+### Ollama (lowest-friction option)
+
+Install Ollama, then test the app with a supported image model, for example:
 
 ```powershell
-# Same keys as Phase 1. Run the always-on-top panel (F8 reads; F9 logs trade; right-click for menu):
-python -m ai_trader.cli --overlay
+ollama pull qwen2.5-vl:7b
+ollama list
+```
 
-# Run the panel in watch mode (polls continuously, skips unchanged frames):
+In `config.toml`, retain `ollama = "qwen2.5-vl:7b"` and set the provider chain to local-only for predictable testing:
+
+```toml
+[providers]
+chain = ["ollama", "noop"]
+```
+
+Then run:
+
+```powershell
+python -m ai_trader.cli --once
+python -m ai_trader.cli --overlay
+# Only after confirming the region + readings:
 python -m ai_trader.cli --overlay --watch
 ```
 
-The panel floats above your trading platform and never steals keyboard focus. It shows
-the latest call — action, confidence, entry/stop/target/size, reasoning — plus the
-signal's age ("signal is 8s old"), greying to red when a call goes stale (>5 min).
-High-DPI aware on Windows with crisp fractional scaling for high-resolution displays.
-Requires `PyQt6` (installed by `pip install -r requirements.txt`).
+The `noop` provider is a deterministic test mock, **not an actual market analysis**. If it served the result, do not treat the output as a trading signal. The startup log prints the effective provider chain and each successful response's provider/model.
 
-## Without any API key
+### Larger local vision models
 
-The `noop` provider (offline mock, $0) makes the entire pipeline run and is fully
-testable. Every provider attempt and fallback is logged, and the CLI prints which
-provider/model served each signal so quality changes stay traceable.
+Qwen3.6-35B-A3B is multimodal, but common 4-bit GGUF builds are around 20–23 GB before runtime context/cache, so they cannot reside fully in 12 GB VRAM. Partial GPU offload to system RAM is possible with a compatible engine, but latency can rise substantially. Verify actual model format, vision projector, engine support, RAM use, and end-to-end latency before making it the default. Do not confuse 3B active parameters with a 3 GB model.
 
-## Providers
+The ISTA-DASLab Qwen3.8-Flash-Next GSQ-RCO Coder IQ1_M artifact is an experimental code-specialized, expert-pruned multimodal model. Its first shard alone is about 29.6 GB and must reside in memory; the second 28.8 GB n-gram table can be memory-mapped from SSD. It is not a good default for this screenshot-reading app on a 12 GB GPU, despite the low-bit name. Use it for offline coding experiments only if your host RAM/SSD and serving engine can handle it, not as the first runtime to debug.
 
-| Provider | Key | Cost | Notes |
-|---|---|---|---|
-| `openrouter` | `OPENROUTER_API_KEY` | $0 | Free vision models; `max_price=0` hard bound so a paid model can never be charged |
-| `ollama` | — | $0 | Local; first when no cloud key is set (needs `ollama serve` + a vision model, e.g. `ollama pull moondream`) |
-| `lmstudio` | — | $0 | Local; OpenAI-compatible endpoint (runs locally on GPU via LM Studio / llama.cpp on `http://localhost:1234`) |
-| `noop` | — | $0 | Deterministic mock; default when no key is set |
-| `anthropic` | `ANTHROPIC_API_KEY` | paid | Via Messages API (vision image blocks) |
+## Local OpenAI-compatible endpoint
 
-Keys live in `.env` (loaded automatically at startup; see `.env.example`). When a
-cloud key is set, that cloud provider is the first choice for **every** read and
-local providers (`ollama`, `lmstudio`) are the offline fallback; with no cloud key, local runs first.
-The effective chain order is logged once (INFO) at startup. Set
-`AI_TRADER_SKIP_LOCAL=1` in `.env` to exclude local providers for a hardened
-cloud-only validation run. The chain always ends in `noop` (offline last resort).
-
-Models are editable in `config.toml` → `[providers.models]`.
-
-## Tests
+For a vision-capable GGUF in llama.cpp, confirm the matching multimodal projector (`mmproj`) and use your engine's OpenAI-compatible server. Configure:
 
 ```powershell
-pytest
+$env:AI_TRADER_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
+$env:AI_TRADER_LMSTUDIO_MODEL = "the-model-id-returned-by-v1-models"
+$env:AI_TRADER_PROVIDERS = "lmstudio,noop"
+python -m ai_trader.cli --once
 ```
 
-All tests run offline (mock provider, no API calls). The two PyQt6 panel smoke tests
-auto-skip when PyQt6 is not installed.
+For the app to submit images, the loaded model **must be vision-enabled** and its serving engine must support OpenAI-compatible `image_url` content. Check the endpoint before starting the app:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:1234/v1/models
+```
+
+A text-only coder does not become a vision model simply because the client sends an image.
+
+## Safety, privacy, and testing
+
+- Default provider chain can include cloud APIs. For offline/local testing set `AI_TRADER_PROVIDERS=ollama,noop` or `AI_TRADER_PROVIDERS=lmstudio,noop`. Do not configure cloud providers if screenshots must stay local.
+- Full-screen capture is local-only; prefer the smallest possible chart region to reduce privacy exposure and vision token/latency costs.
+- Start with `--once`; use `--overlay --watch` only after validating signals manually. Configure a realistic refresh interval: every image analysis may be slow and unchanged frames are skipped.
+- Confidence is model-estimated, not calibrated probability. Never treat AI output as an instruction to enter a trade.
+- Position sizing is advisory math only. It assumes the provided entry/stop are correct, does not account for slippage/fees/lot sizes, and never places an order.
+- `noop/mock` exists for software tests only. Never act on mock output.
+- Run the offline test suite before use: `python -m pytest -q`.
+
+## Key controls
+
+- `F8`: read chart once
+- `F9`: log the last displayed signal to the configured Excel tracker
+- Right-click overlay: read, log, or quit
+- `--once`: perform a single read and exit
+- `--watch`: CLI polling mode
+- `--overlay --watch`: floating panel + polling
+
+Keep credentials in `.env`; never commit secrets.
