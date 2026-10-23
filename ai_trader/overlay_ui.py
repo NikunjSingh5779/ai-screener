@@ -244,7 +244,8 @@ class OverlayWindow(QWidget):
         self._view = view
         self._action.setText(view.action_label)
         self._action.setStyleSheet(f"color:{view.color}; font-size:20px; font-weight:800;")
-        self._symbol.setText(f"{view.symbol} · {view.market}")
+        currency_label = f" · {view.currency}" if view.currency else ""
+        self._symbol.setText(f"{view.symbol} · {view.market}{currency_label}")
         self._confidence.setText(view.confidence)
         self._entry.setText(f"ENTRY {view.entry}")
         self._sl.setText(f"SL {view.stop_loss}")
@@ -467,7 +468,7 @@ class OverlayWindow(QWidget):
         self._refresh_trade_controls()
         pnl = float(closed["gross_pnl_before_costs"])
         self.set_status(
-            f"Exit recorded · gross P&L {pnl:+,.2f} before fees/slippage · "
+            f"Exit recorded · gross P&L {closed.get('currency') or ''} {pnl:+,.2f} before fees/slippage · "
             f"held {format_age(float(closed['holding_seconds']))}. "
             "Saved to Manual_Trade_Journal.csv; no order was placed."
         )
