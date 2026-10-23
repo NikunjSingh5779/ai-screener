@@ -27,6 +27,9 @@ DEFAULTS: dict = {
     "providers": {
         "chain": ["ollama", "lmstudio", "openrouter", "anthropic", "noop"],
         "cooldown_seconds": 30,
+        "ollama_base_url": "http://127.0.0.1:11434",
+        "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+        "lmstudio_api_key": "",
         "budget": {"calls_per_minute": 6, "min_interval_seconds": 8},
         "models": {
             "openrouter": "google/gemma-4-31b-it:free",
@@ -94,6 +97,9 @@ _ENV_OVERRIDES = {
     "AI_TRADER_ACCOUNT_SIZE_INR": ("risk", "account_size_inr"),
     "AI_TRADER_ACCOUNT_SIZE_USD": ("risk", "account_size_usd"),
     "AI_TRADER_ACCOUNT_CURRENCY": ("risk", "account_currency"),
+    "AI_TRADER_OLLAMA_BASE_URL": ("providers", "ollama_base_url"),
+    "AI_TRADER_LMSTUDIO_BASE_URL": ("providers", "lmstudio_base_url"),
+    "AI_TRADER_LMSTUDIO_API_KEY": ("providers", "lmstudio_api_key"),
     "AI_TRADER_RISK_PCT": ("risk", "risk_per_trade_pct"),
 }
 
@@ -122,6 +128,9 @@ class Config:
     min_flip_hold_seconds: float
     provider_chain: list[str]
     cooldown_seconds: float
+    ollama_base_url: str
+    lmstudio_base_url: str
+    lmstudio_api_key: str
     calls_per_minute: int
     min_interval_seconds: float
     model_openrouter: str
@@ -209,6 +218,9 @@ def load_config(path: str | Path | None = None) -> Config:
         min_flip_hold_seconds=float(data["polling"]["min_flip_hold_seconds"]),
         provider_chain=list(data["providers"]["chain"]),
         cooldown_seconds=float(data["providers"]["cooldown_seconds"]),
+        ollama_base_url=str(data["providers"].get("ollama_base_url", "http://127.0.0.1:11434")),
+        lmstudio_base_url=str(data["providers"].get("lmstudio_base_url", "http://127.0.0.1:1234/v1")),
+        lmstudio_api_key=str(data["providers"].get("lmstudio_api_key", "")),
         calls_per_minute=int(budget["calls_per_minute"]),
         min_interval_seconds=float(budget["min_interval_seconds"]),
         model_openrouter=str(models["openrouter"]),
