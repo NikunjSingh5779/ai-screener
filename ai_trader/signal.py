@@ -306,9 +306,9 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
 
     BUY/SELL levels must have the correct order and at least
     MIN_REWARD_RISK_RATIO potential reward for each unit of price risk.
-    Invalid or poor-ratio suggestions are downgraded before they reach sizing,
-    the overlay, or the trade logger. If a suggestion is rejected, actionable
-    levels are cleared and original values are retained in the reasoning.
+    Structurally invalid levels are downgraded to hold. Suggestions below
+    the reward/risk threshold are downgraded to watch and their actionable
+    levels are cleared; the original values and ratio remain in the reasoning.
     This is a screening heuristic, not a profitability guarantee.
     """
     action = signal.action
