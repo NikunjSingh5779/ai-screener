@@ -81,6 +81,11 @@ A text-only coder does not become a vision model simply because the client sends
 - `noop/mock` exists for software tests only. Never act on mock output.
 - Run the offline test suite before use: `python -m pytest -q`.
 
+## TradingView chart and order-ticket guide
+
+- [Free intraday indicator setup](TRADINGVIEW_SETUP.md): built-in EMA 20/50, Session VWAP, Volume, RSI 14 and ATR 14; use as backtest hypotheses, not proven trading rules.
+- [Market / Limit / Stop order-ticket mapping](TRADINGVIEW_ORDER_TICKET.md): tells the screener design which fields differ by order type, how stops/targets and time-in-force should be treated, and why the app must not assume orders were submitted.
+
 ## Manual trade tracking in the overlay
 
 The floating panel provides **I entered** and **Exit confirmed** controls. They only record fills that you already executed yourself; they do not place orders.
