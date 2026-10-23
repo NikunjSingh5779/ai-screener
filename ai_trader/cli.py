@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from ai_trader.capture import FrameGate, frame_digest, grab_screen, image_to_base64_png
-from ai_trader.config import load_config, with_region
+from ai_trader.config import account_size_for_market, load_config, with_region
 from ai_trader.overlay import SignalView
 from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
 from ai_trader.rate_guard import RateGuard
@@ -94,12 +94,34 @@ def read_signal(
         prompt = engine.build_prompt()
         result = client.analyze(image_b64, "image/png", prompt)
         signal = engine.parse(result.text)
+        # The app accepts Indian cash equities and US-listed equities. In AUTO
+        # mode, unsupported/ambiguous market output must never remain directional.
+        supported_markets = {"NSE", "BSE", "US"}
+        expected_market = str(cfg.market or "AUTO").strip().upper()
+        actual_market = str(signal.market or "").strip().upper()
+        if actual_market not in supported_markets:
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.currency = None
+            signal.reasoning = (
+                "NO TRADE: exchange/market could not be confidently identified from the visible chart. "
+                + signal.reasoning
+            ).strip()
+        elif expected_market != "AUTO" and actual_market != expected_market:
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.currency = None
+            signal.reasoning = (
+                f"NO TRADE: configured market is {expected_market}, but the model read {actual_market}. "
+                "Verify the chart symbol and exchange. " + signal.reasoning
+            ).strip()
         elapsed = time.monotonic() - started
         if frame_gate is not None:
             frame_gate.mark_processed(digest)
         # Suppress a buy/sell flip that happened too fast (plan §6: no flip on
         # ordinary chart noise). Hold/watch passes are never suppressed.
-        if not engine.guard_flip(signal.symbol, signal):
+        market_symbol_key = f"{signal.market}:{signal.symbol}"
+        if not engine.guard_flip(market_symbol_key, signal):
             return ReadResult(flip_suppressed=True, elapsed=elapsed)
         ctx = SignalContext(
             symbol=signal.symbol,
@@ -127,8 +149,9 @@ def _emit_signal(cfg, result: ReadResult) -> None:
     signal = result.ctx.signal
     if result.ctx.model == "noop/mock":
         print("\n[TEST MODE] No vision model produced this output. Do not treat it as a market signal.", file=sys.stderr)
+    market_account_size = account_size_for_market(cfg, signal.market)
     qty = compute_position_size(
-        cfg.account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
+        market_account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
     )
     signal.quantity = qty
     if qty is not None:
