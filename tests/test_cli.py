@@ -382,3 +382,81 @@ def test_main_invalid_region_returns_error(capsys) -> None:
     err = capsys.readouterr().err
     assert "Invalid region" in err
 
+
+
+def test_auto_mode_accepts_explicitly_identified_us_equity(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response = {
+        "action": "buy",
+        "confidence": 80,
+        "entry": 376.0,
+        "stop_loss": 370.0,
+        "target": 388.0,
+        "timeframe": "5m",
+        "reasoning": "Illustrative confirmed breakout",
+        "market": "NASDAQ",
+        "symbol": "NASDAQ:TSLA",
+    }
+    client = _DictStyleCapture(json.dumps(response))
+    engine = SignalEngine(market="AUTO", market_notes=cfg.market_notes, min_flip_hold_seconds=0.0)
+
+    result = read_signal(cfg, client, engine)
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "buy"
+    assert result.ctx.signal.market == "US"
+    assert result.ctx.signal.symbol == "TSLA"
+    assert result.ctx.signal.currency == "USD"
+
+
+def test_selected_market_mismatch_is_downgraded_to_watch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "US"
+    engine = SignalEngine(market="US", market_notes=cfg.market_notes)
+
+    result = read_signal(cfg, FakeClient(), engine)
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is None
+    assert result.ctx.signal.stop_loss is None
+    assert result.ctx.signal.target is None
+    assert "configured market is US" in result.ctx.signal.reasoning
+
+
+def test_unknown_market_is_no_trade_watch_not_directional(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response = {
+        "action": "buy",
+        "confidence": 95,
+        "entry": 100,
+        "stop_loss": 95,
+        "target": 110,
+        "market": "UNKNOWN",
+        "symbol": "",
+    }
+    result = read_signal(
+        cfg,
+        _DictStyleCapture(json.dumps(response)),
+        SignalEngine(market="AUTO", market_notes=cfg.market_notes),
+    )
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is None
+    assert result.ctx.signal.currency is None
+    assert "NO TRADE" in result.ctx.signal.reasoning
