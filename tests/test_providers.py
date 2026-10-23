@@ -131,6 +131,7 @@ def test_lmstudio_payload_shape() -> None:
     assert result.model == "lmstudio/qwen2.5-vl-7b-instruct"
     payload = captured["payload"]
     assert payload["model"] == "qwen2.5-vl-7b-instruct"
+    assert payload["temperature"] == 0.1
     messages = payload["messages"]
     assert messages[0]["role"] == "user"
     content = messages[0]["content"]
