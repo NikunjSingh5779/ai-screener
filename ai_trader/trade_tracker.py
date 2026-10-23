@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ class ManualTradeTracker:
     """Persist one manually-confirmed active trade and append closed trades to CSV."""
 
     JOURNAL_FIELDS = [
+        "trade_id",
         "symbol",
         "market",
         "side",
@@ -128,6 +130,7 @@ class ManualTradeTracker:
             raise ManualTradeError("Entry timestamp is invalid.")
 
         trade = {
+            "trade_id": uuid.uuid4().hex,
             "symbol": str(signal.symbol or ctx.symbol or "").upper(),
             "market": str(signal.market or ""),
             "side": side,
@@ -190,11 +193,21 @@ class ManualTradeTracker:
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
         file_exists = self.journal_path.exists() and self.journal_path.stat().st_size > 0
         try:
-            with self.journal_path.open("a", newline="", encoding="utf-8") as handle:
-                writer = csv.DictWriter(handle, fieldnames=self.JOURNAL_FIELDS, extrasaction="ignore")
-                if not file_exists:
-                    writer.writeheader()
-                writer.writerow(closed)
+            # If the CSV append succeeded but clearing persisted state failed,
+            # a retry must not create a duplicate completed-trade row.
+            already_logged = False
+            if file_exists:
+                with self.journal_path.open("r", newline="", encoding="utf-8") as handle:
+                    already_logged = any(
+                        row.get("trade_id") == trade.get("trade_id")
+                        for row in csv.DictReader(handle)
+                    )
+            if not already_logged:
+                with self.journal_path.open("a", newline="", encoding="utf-8") as handle:
+                    writer = csv.DictWriter(handle, fieldnames=self.JOURNAL_FIELDS, extrasaction="ignore")
+                    if not file_exists:
+                        writer.writeheader()
+                    writer.writerow(closed)
         except OSError as exc:
             raise ManualTradeError(f"Cannot write manual trade journal: {exc}") from exc
 
