@@ -334,3 +334,49 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "Never invent a price" in prompt
     assert 'return "watch" or "hold"' in prompt
     assert "not a probability of profit" in prompt
+
+
+def test_auto_market_prompt_contains_indian_and_us_guidance() -> None:
+    prompt = SignalEngine(market="AUTO", market_notes=MARKET_NOTES).build_prompt()
+    assert "Market hint: AUTO" in prompt
+    assert "NSE cash market" in prompt
+    assert "US equities" in prompt
+    assert "visible ticker/exchange label" in prompt
+
+
+@pytest.mark.parametrize(
+    ("market", "symbol", "expected_market", "expected_symbol", "currency"),
+    [
+        ("NSE", "NSE:RELIANCE", "NSE", "RELIANCE", "INR"),
+        ("BSE", "BSE:TCS", "BSE", "TCS", "INR"),
+        ("NASDAQ", "NASDAQ:TSLA", "US", "TSLA", "USD"),
+        ("NYSE", "NYSE:IBM", "US", "IBM", "USD"),
+        ("US equities", "AAPL", "US", "AAPL", "USD"),
+    ],
+)
+def test_parse_normalizes_supported_market_symbol_and_currency(
+    market: str,
+    symbol: str,
+    expected_market: str,
+    expected_symbol: str,
+    currency: str,
+) -> None:
+    import json
+
+    signal = SignalEngine.parse(json.dumps({
+        "action": "hold",
+        "confidence": 50,
+        "market": market,
+        "symbol": symbol,
+    }))
+    assert signal.market == expected_market
+    assert signal.symbol == expected_symbol
+    assert signal.currency == currency
+
+
+def test_parse_does_not_invent_currency_for_unknown_market() -> None:
+    signal = SignalEngine.parse(
+        '{"action":"hold","confidence":50,"market":"LSE","symbol":"ABC"}'
+    )
+    assert signal.market == "LSE"
+    assert signal.currency is None
