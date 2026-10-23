@@ -151,7 +151,7 @@ def test_lmstudio_payload_shape() -> None:
     ("content", "finish_reason", "message"),
     [
         (None, "stop", "empty or non-text"),
-        ("{\\\"action\\\": \\\"hold\\\"}", "length", "truncated"),
+        ("{\\\"action\\\": \\\"hold\\\"}", "length", "truncated at max_tokens"),
     ],
 )
 def test_lmstudio_rejects_empty_or_truncated_content(content, finish_reason, message) -> None:
