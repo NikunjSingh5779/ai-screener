@@ -327,3 +327,10 @@ def test_parse_coerces_price_with_currency_suffix_or_tilde() -> None:
     assert signal.stop_loss == 24000.5
     assert signal.target == 25100.0
 
+
+
+def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
+    prompt = SignalEngine().build_prompt()
+    assert "Never invent a price" in prompt
+    assert 'return "watch" or "hold"' in prompt
+    assert "not a probability of profit" in prompt
