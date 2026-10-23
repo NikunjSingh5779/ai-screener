@@ -39,9 +39,12 @@ Schema (use null when a level is not visible on the chart; never guess):
 }}
 
 Guidelines:
-- Base every number on what is visible on the chart; use null if a level is not
-  visible rather than guessing.
-- "confidence" reflects how clearly the setup reads; prefer honest mid values.
+- This is a visual chart interpretation task, not a request to predict with certainty.
+- Base every number on legible, visible chart evidence. Never invent a price, symbol, timeframe, indicator value, or candle pattern. Use null when the relevant information cannot be read.
+- If the symbol, timeframe, trend, or price levels are ambiguous, return "watch" or "hold" and explain what cannot be verified.
+- A buy requires entry > stop_loss and target > entry. A sell requires stop_loss > entry and entry > target. If the levels cannot be read confidently, use null levels and "watch".
+- "confidence" is a subjective visual clarity score, not a probability of profit; keep it conservative and never inflate it.
+- Separate what is directly visible from interpretation in the reasoning.
 - Advisory only — never imply order execution.
 
 Market hint: {market}. Symbol hint: {symbol_hint}.
