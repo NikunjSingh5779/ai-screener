@@ -252,7 +252,7 @@ class SignalEngine:
     def build_prompt(self, symbol_hint: str | None = None) -> str:
         if self.market == "AUTO":
             note_keys = ("NSE", "BSE", "US")
-            market_note = "\\n".join(
+            market_note = "\n".join(
                 self.market_notes[key] for key in note_keys if key in self.market_notes
             )
         else:
