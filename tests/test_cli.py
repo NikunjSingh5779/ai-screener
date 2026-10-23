@@ -234,7 +234,7 @@ def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
             # Structurally valid levels for the action (short: entry 100,
             # stop 105, target 95; long: entry 100, stop 99.5, target 105).
             stop_loss=105.0 if is_sell else 99.5,
-            target=95.0 if is_sell else 105.0,
+            target=92.0 if is_sell else 105.0,
             position_size_pct=1.5,
             timeframe="15m",
             reasoning="High-confidence reversal.",
@@ -319,7 +319,7 @@ def test_do_read_suppressed_flip_never_alerts(monkeypatch) -> None:
                 entry=100.0,
                 # Valid levels for either direction (buy: 99.5/105; sell: 105/95).
                 stop_loss=105.0 if action == "sell" else 99.5,
-                target=95.0 if action == "sell" else 105.0,
+                target=92.0 if action == "sell" else 105.0,
                 position_size_pct=1.5,
                 timeframe="15m",
                 reasoning="Flip-flop test.",
