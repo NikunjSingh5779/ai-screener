@@ -283,6 +283,8 @@ class OverlayWindow(QWidget):
             return
         if result.ctx is not None:
             self._ctx = result.ctx
+            if result.ctx.model == "noop/mock":
+                self.show_error("TEST MODE — no model analysis. Do not trade from this output.")
             if self._cfg is not None:
                 signal = result.ctx.signal
                 # Compute risk-based quantity and attach to signal.
