@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 OPENROUTER_DEFAULT_URL = "https://openrouter.ai/api/v1"
 ANTHROPIC_DEFAULT_URL = "https://api.anthropic.com"
 LMSTUDIO_DEFAULT_URL = "http://localhost:1234/v1"
+POLYSTRATA_DEFAULT_URL = "http://127.0.0.1:8080/v1"
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_MAX_TOKENS = 1024
 
@@ -344,9 +345,11 @@ class LMStudioProvider:
         base_url: str | None = None,
         timeout: float = 120.0,
         transport: httpx.BaseTransport | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.model = model or os.getenv("AI_TRADER_LMSTUDIO_MODEL") or os.getenv("LMSTUDIO_MODEL") or "local-model"
         self.base_url = (base_url or os.getenv("AI_TRADER_LMSTUDIO_BASE_URL") or os.getenv("LMSTUDIO_BASE_URL") or self.default_base_url).rstrip("/")
+        self.api_key = api_key or os.getenv("AI_TRADER_LMSTUDIO_API_KEY") or os.getenv("LMSTUDIO_API_KEY") or ""
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
@@ -366,13 +369,15 @@ class LMStudioProvider:
             "max_tokens": DEFAULT_MAX_TOKENS,
             "temperature": 0.1,
         }
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
-            response = self._client.post(url, json=payload)
+            response = self._client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
         except httpx.ConnectError as exc:
             raise ProviderError(
-                "LM Studio not running — start it, load a vision model, and enable the local server at http://localhost:1234"
+                f"Local OpenAI-compatible vision server not running at {self.base_url}. "
+                "Start PolyStrata/Strata and confirm the model has image input enabled."
             ) from exc
         except httpx.HTTPStatusError as exc:
             raise ProviderError(
@@ -394,6 +399,55 @@ class LMStudioProvider:
         self._client.close()
 
 
+class PolyStrataProvider(LMStudioProvider):
+    """Vision model through PolyStrata/Strata's local OpenAI-compatible API.
+
+    PolyStrata's default server is http://127.0.0.1:8080/v1. Strata and
+    PolyStrata can use a model ID reported by GET /v1/models; the API accepts
+    image_url messages only when the selected model/runtime has image support.
+    """
+
+    name = "polystrata"
+    default_base_url = POLYSTRATA_DEFAULT_URL
+
+    def __init__(
+        self,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout: float = 180.0,
+        transport: httpx.BaseTransport | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        super().__init__(
+            model=(
+                model
+                or os.getenv("AI_TRADER_POLYSTRATA_MODEL")
+                or os.getenv("POLYSTRATA_MODEL")
+                or os.getenv("AI_TRADER_STRATA_MODEL")
+                or os.getenv("STRATA_MODEL")
+                or "strata"
+            ),
+            base_url=(
+                base_url
+                or os.getenv("AI_TRADER_POLYSTRATA_BASE_URL")
+                or os.getenv("POLYSTRATA_BASE_URL")
+                or os.getenv("AI_TRADER_STRATA_BASE_URL")
+                or os.getenv("STRATA_BASE_URL")
+                or self.default_base_url
+            ),
+            timeout=timeout,
+            transport=transport,
+            api_key=(
+                api_key
+                or os.getenv("AI_TRADER_POLYSTRATA_API_KEY")
+                or os.getenv("POLYSTRATA_API_KEY")
+                or os.getenv("AI_TRADER_STRATA_API_KEY")
+                or os.getenv("STRATA_API_KEY")
+                or ""
+            ),
+        )
+
+
 def _base_models() -> dict[str, type]:
     """Registry used by :func:`make_provider_chain`; keys match config provider names."""
     return {
@@ -402,11 +456,13 @@ def _base_models() -> dict[str, type]:
         "anthropic": AnthropicProvider,
         "ollama": OllamaProvider,
         "lmstudio": LMStudioProvider,
+        "polystrata": PolyStrataProvider,
+        "strata": PolyStrataProvider,
     }
 
 
 _CLOUD_PROVIDERS = frozenset({"openrouter", "anthropic"})
-_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio"})
+_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio", "polystrata", "strata"})
 
 
 def _cloud_keys_present() -> list[str]:
@@ -484,7 +540,13 @@ def make_provider_chain(cfg: Config) -> list[Provider]:
         elif name == "ollama":
             built.append(cls(model=cfg.model_ollama))
         elif name == "lmstudio":
-            built.append(cls(model=cfg.model_lmstudio))
+            built.append(cls(model=cfg.model_lmstudio, base_url=cfg.lmstudio_base_url, api_key=cfg.lmstudio_api_key))
+        elif name in {"polystrata", "strata"}:
+            built.append(cls(
+                model=cfg.model_polystrata,
+                base_url=cfg.polystrata_base_url,
+                api_key=cfg.polystrata_api_key,
+            ))
         else:
             built.append(cls())
     if not any(p.name == "noop" for p in built):
