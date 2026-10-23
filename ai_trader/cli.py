@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 import time
 from collections.abc import Callable, Iterator
@@ -258,6 +259,17 @@ def run_cli_watch(
     return 0
 
 
+def parse_nonnegative_seconds(value: str) -> float:
+    """Parse a finite, non-negative delay duration for CLI capture."""
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("delay must be a number of seconds") from exc
+    if not math.isfinite(seconds) or seconds < 0:
+        raise argparse.ArgumentTypeError("delay must be a finite, non-negative number of seconds")
+    return seconds
+
+
 def parse_region(value: str) -> tuple[int, int, int, int]:
     parts = [part.strip() for part in value.split(",")]
     if len(parts) != 4:
@@ -279,6 +291,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", default=None, help="path to config.toml")
     parser.add_argument("--hotkey", default="f8", help="global hotkey to trigger a read (default: f8)")
     parser.add_argument("--once", action="store_true", help="take a single read and exit")
+    parser.add_argument(
+        "--delay",
+        type=parse_nonnegative_seconds,
+        default=0.0,
+        metavar="SECONDS",
+        help="with --once, wait before capturing so you can switch to the chart window",
+    )
     parser.add_argument(
         "--region",
         default=None,
@@ -324,6 +343,12 @@ def main(argv: list[str] | None = None) -> int:
     trade_logger = TradeLogger(excel_path=cfg.excel_path)
 
     if args.once:
+        if args.delay > 0:
+            print(
+                f"\nCapturing in {args.delay:g} second(s) — switch to the trading chart now.",
+                flush=True,
+            )
+            time.sleep(args.delay)
         do_read(cfg, client, engine)
         client.close()
         return 0
