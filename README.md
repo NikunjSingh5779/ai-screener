@@ -1,6 +1,6 @@
 # AI Trader — Local-First Floating Trading Copilot
 
-AI Trader is a **screen-reading, advisory-only** desktop copilot. It captures a selected chart region, asks a vision model for a structured interpretation, displays the result in an always-on-top panel, and can log reviewed signals to an Excel workbook. It **does not place orders**.
+AI Trader is a **screen-reading, advisory-only** desktop copilot for **Indian (NSE/BSE) and US-listed equities**. It captures a selected TradingView chart region, asks a local vision model for a structured interpretation, normalizes the detected market and quote currency, displays the result in an always-on-top panel, and can track manually confirmed fills. It **does not place orders**. Market auto-detection depends on a readable ticker/exchange label; unclear or unsupported markets are downgraded to WATCH.
 
 ## Quick start (Windows PowerShell)
 
@@ -14,6 +14,15 @@ python -m pytest -q
 ```
 
 Set the screen region in `config.toml` to the chart's pixel coordinates. Start with **manual reads**, not continuous polling, until you have verified the capture region and model output.
+
+## Indian + US equity support
+
+The default market selection is `AUTO`. The model is prompted to identify the visible exchange label and the screener normalizes supported labels to `NSE`, `BSE`, or `US`. Set `[signal].market` to `NSE`, `BSE`, or `US` to pin the app to one market while testing. Keep the ticker and exchange visible in your capture region. If the configured market conflicts with the model's result—or the exchange cannot be identified—the app clears trade price levels and emits `WATCH`, not a directional signal.
+
+- **Indian equities:** quote currency INR; configure `risk.account_size_inr` to enable account-risk-based share sizing.
+- **US equities:** quote currency USD; configure `risk.account_size_usd` to enable US share sizing. Fractional quantity can be recorded manually for US trades where the product supports it.
+- The old `risk.account_size` key remains for backward compatibility and is used only in the currency declared by `risk.account_currency` (default INR). No FX conversion is guessed.
+- The supported market sessions and symbols must be clear from the chart. This is screenshot-based market identification, not a live market-data feed or a guarantee that the screenshot is fresh.
 
 ## Local model — no API key
 
