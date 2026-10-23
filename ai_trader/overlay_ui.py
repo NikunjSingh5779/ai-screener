@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QInputDialog,
+    QMessageBox,
     QLabel,
     QMenu,
     QPushButton,
@@ -376,6 +377,18 @@ class OverlayWindow(QWidget):
         ):
             self.show_error("Only BUY/SELL signals with entry, stop-loss and target levels can be tracked.")
             return
+        if signal.action == "sell":
+            answer = QMessageBox.question(
+                self,
+                "Confirm short-position tracking",
+                "For NSE cash equities, a SELL signal may mean exiting shares you already own. "
+                "Starting a new SELL trade here is tracked as a short position. Continue only "
+                "if your chosen product/account supports that trade. No order will be placed.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
 
         default_entry = float(signal.entry or 0.0)
         actual_entry, accepted = QInputDialog.getDouble(
@@ -395,7 +408,7 @@ class OverlayWindow(QWidget):
         quantity, accepted = QInputDialog.getInt(
             self,
             "Confirm executed quantity",
-            "Enter the actual whole number of shares/contracts you filled:",
+            "Enter the actual whole number of shares you filled (not the suggested quantity):",
             quantity_default,
             1,
             1_000_000_000,
