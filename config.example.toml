@@ -10,11 +10,10 @@ interval_seconds = 15
 min_flip_hold_seconds = 60
 
 [providers]
-# Strictly local; noop is a software-test fallback, never actual analysis.
+# Strictly local; no mock or cloud fallback is enabled.
 # PolyStrata/Strata model server uses localhost:8080/v1 by default.
 # Use PolyStrata/Strata's image-enabled model API. No cloud is required.
-# Keep noop last so failures are visibly marked TEST MODE.
-chain = ["polystrata", "noop"]
+chain = ["polystrata"]
 cooldown_seconds = 45
 polystrata_base_url = "http://127.0.0.1:8080/v1"
 polystrata_api_key = ""
@@ -43,7 +42,7 @@ account_size_inr = 0.0
 account_size_usd = 0.0
 # Legacy single balance. Used only with the matching account_currency.
 account_size = 0.0
-account_currency = "INR"
+account_currency = "USD"
 risk_per_trade_pct = 0.5
 
 [logging]
