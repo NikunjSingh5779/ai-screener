@@ -136,7 +136,7 @@ def test_lmstudio_payload_shape() -> None:
     payload = captured["payload"]
     assert payload["model"] == "qwen2.5-vl-7b-instruct"
     assert payload["temperature"] == 0.1
-    assert payload["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in payload  # Strata-specific field only
     messages = payload["messages"]
     assert messages[0]["role"] == "user"
     content = messages[0]["content"]
