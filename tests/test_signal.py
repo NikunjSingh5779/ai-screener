@@ -334,6 +334,8 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "Never invent a price" in prompt
     assert 'return "watch" or "hold"' in prompt
     assert "not a probability of profit" in prompt
+    assert "short intraday trades only" in prompt
+    assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
 
 
 def test_auto_market_prompt_contains_indian_and_us_guidance() -> None:
