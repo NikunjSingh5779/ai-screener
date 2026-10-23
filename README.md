@@ -35,7 +35,7 @@ Invoke-RestMethod http://127.0.0.1:8080/health
 Invoke-RestMethod http://127.0.0.1:8080/v1/models
 ```
 
-The local request now uses a more detailed chart-reading checklist, `reasoning_effort = "medium"`, and `max_tokens = 4096` for the response. The output-token cap is not the prompt-reading cap: Strata's “reading the prompt” count shows the actual input it processed, and the expanded instructions should make that number higher than the previous ~747-token prompt. The exact count depends on the tokenizer and selected market notes. This does not force the model to use all 4,096 output tokens or guarantee better trading decisions.
+The local request now uses a more detailed chart-reading checklist, `reasoning_effort = "low"`, `reasoning_budget_tokens = 1024`, and `max_tokens = 8192` for the response. This bounds internal reasoning so it does not consume the full completion before the JSON signal is emitted. The output-token cap is not the prompt-reading cap: Strata's “reading the prompt” count shows the actual input it processed, and the expanded instructions should make that number higher than the previous ~747-token prompt. The exact count depends on the tokenizer and selected market notes. The earlier 4,096-token trial was exhausted by internal thinking before an answer was emitted; increasing the output cap alone was not enough. The app now sends a low reasoning effort and a 1,024-token reasoning budget, while reserving an 8,192-token maximum completion allowance. This does not force the model to use the full allowance or guarantee better trading decisions.
 
 ### Increase image detail for chart reading (Strata setting)
 
