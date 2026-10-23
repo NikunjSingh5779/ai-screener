@@ -30,6 +30,8 @@ DEFAULTS: dict = {
         "ollama_base_url": "http://127.0.0.1:11434",
         "lmstudio_base_url": "http://127.0.0.1:1234/v1",
         "lmstudio_api_key": "",
+        "polystrata_base_url": "http://127.0.0.1:8080/v1",
+        "polystrata_api_key": "",
         "budget": {"calls_per_minute": 6, "min_interval_seconds": 8},
         "models": {
             "openrouter": "google/gemma-4-31b-it:free",
@@ -100,6 +102,8 @@ _ENV_OVERRIDES = {
     "AI_TRADER_OLLAMA_BASE_URL": ("providers", "ollama_base_url"),
     "AI_TRADER_LMSTUDIO_BASE_URL": ("providers", "lmstudio_base_url"),
     "AI_TRADER_LMSTUDIO_API_KEY": ("providers", "lmstudio_api_key"),
+    "AI_TRADER_POLYSTRATA_BASE_URL": ("providers", "polystrata_base_url"),
+    "AI_TRADER_POLYSTRATA_API_KEY": ("providers", "polystrata_api_key"),
     "AI_TRADER_RISK_PCT": ("risk", "risk_per_trade_pct"),
 }
 
@@ -137,6 +141,9 @@ class Config:
     model_anthropic: str
     model_ollama: str
     model_lmstudio: str
+    model_polystrata: str
+    polystrata_base_url: str
+    polystrata_api_key: str
     market: str
     symbol_hint: str
     market_notes: dict[str, str]
@@ -227,6 +234,9 @@ def load_config(path: str | Path | None = None) -> Config:
         model_anthropic=str(models["anthropic"]),
         model_ollama=str(models["ollama"]),
         model_lmstudio=str(models.get("lmstudio", "local-model")),
+        model_polystrata=str(models.get("polystrata", "strata")),
+        polystrata_base_url=str(data["providers"].get("polystrata_base_url", "http://127.0.0.1:8080/v1")),
+        polystrata_api_key=str(data["providers"].get("polystrata_api_key", "")),
         market=str(data["signal"]["market"]).strip().upper(),
         symbol_hint=str(data["signal"]["symbol_hint"]),
         market_notes=dict(data["signal"].get("market_notes", {})),
