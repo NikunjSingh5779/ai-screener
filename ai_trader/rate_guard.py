@@ -13,6 +13,26 @@ from collections import deque
 _WINDOW_SECONDS = 60.0
 
 
+def minimum_safe_poll_interval_seconds(
+    configured_interval_seconds: float,
+    calls_per_minute: int,
+    min_interval_seconds: float,
+    safety_margin_seconds: float = 0.25,
+) -> float:
+    """Return a polling interval that stays inside the local request budget.
+
+    Polling must honor both the minimum gap between requests and the sliding
+    calls-per-minute budget. A small margin avoids exact-window boundary races.
+    """
+    if calls_per_minute <= 0:
+        raise ValueError("calls_per_minute must be > 0")
+    return max(
+        float(configured_interval_seconds),
+        float(min_interval_seconds),
+        60.0 / calls_per_minute + max(0.0, float(safety_margin_seconds)),
+    )
+
+
 class RateGuard:
     """Tracks recent calls per provider and answers 'may I call now?'."""
 
