@@ -105,6 +105,11 @@ _ENV_OVERRIDES = {
     "AI_TRADER_LMSTUDIO_API_KEY": ("providers", "lmstudio_api_key"),
     "AI_TRADER_POLYSTRATA_BASE_URL": ("providers", "polystrata_base_url"),
     "AI_TRADER_POLYSTRATA_API_KEY": ("providers", "polystrata_api_key"),
+    "AI_TRADER_OLLAMA_BASE_URL": ("providers", "ollama_base_url"),
+    "AI_TRADER_LMSTUDIO_BASE_URL": ("providers", "lmstudio_base_url"),
+    "AI_TRADER_LMSTUDIO_API_KEY": ("providers", "lmstudio_api_key"),
+    "AI_TRADER_POLYSTRATA_BASE_URL": ("providers", "polystrata_base_url"),
+    "AI_TRADER_POLYSTRATA_API_KEY": ("providers", "polystrata_api_key"),
     "AI_TRADER_RISK_PCT": ("risk", "risk_per_trade_pct"),
 }
 
