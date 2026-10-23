@@ -25,6 +25,9 @@ def _no_config_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "AI_TRADER_POLYSTRATA_MODEL",
         "AI_TRADER_POLYSTRATA_BASE_URL",
         "AI_TRADER_POLYSTRATA_API_KEY",
+        "AI_TRADER_OLLAMA_BASE_URL",
+        "AI_TRADER_LMSTUDIO_BASE_URL",
+        "AI_TRADER_LMSTUDIO_API_KEY",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
