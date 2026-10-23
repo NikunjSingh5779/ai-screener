@@ -417,11 +417,9 @@ class LMStudioProvider:
         # value downstream to the JSON parser as if it were a model answer.
         if finish_reason == "length":
             raise ProviderError(
-                f"Local vision response reached max_tokens={LOCAL_MAX_TOKENS} "
-                "(finish_reason='length'). If Strata's log says it was still thinking "
-                "and produced no answer, lower reasoning_effort/reasoning_budget_tokens "
-                "in the Strata request or active model config; raising max_tokens alone "
-                "can waste time without leaving room for the JSON signal."
+                f"Local vision response was truncated at max_tokens={LOCAL_MAX_TOKENS} "
+                "(finish_reason='length'); if Strata was still thinking, lower "
+                "reasoning_effort/reasoning_budget_tokens so it can emit the JSON answer"
             )
         if not isinstance(text, str) or not text.strip():
             raise ProviderError(
