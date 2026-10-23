@@ -204,6 +204,7 @@ def test_overlay_window_renders_quantity_offscreen() -> None:
 
     cfg = load_config()
     cfg.account_size = 100_000.0
+    cfg.account_currency = "INR"
     cfg.risk_per_trade_pct = 1.0
     win = OverlayWindow(cfg=cfg)
     win._on_signal(ReadResult(ctx=ctx, elapsed=0.5))
