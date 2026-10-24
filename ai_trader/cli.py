@@ -29,6 +29,7 @@ from ai_trader.signal import SignalContext, SignalEngine
 from ai_trader.logger import TradeLogger
 from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
+from ai_trader.validation import downgrade_unsafe_signal, validate_signal_safety
 
 
 # This screener intentionally supports equities, not crypto spot/perpetual pairs.
@@ -161,6 +162,22 @@ def read_signal(
                 "NO TRADE: this screener supports NSE/BSE/US-listed equities, not cryptocurrency pairs. "
                 "Verify the visible chart symbol and capture region. " + signal.reasoning
             ).strip()
+        # Model output is not the safety authority. Apply deterministic checks before rendering.
+        safety_errors = validate_signal_safety(
+            action=signal.action,
+            market=signal.market,
+            symbol=signal.symbol,
+            entry=signal.entry,
+            stop_loss=signal.stop_loss,
+            target=signal.target,
+            expected_market=expected_market,
+            symbol_hint=str(getattr(cfg, "symbol_hint", "") or ""),
+            # Capture time is not evidence that the chart's latest candle is fresh.
+            # This screenshot-only interface currently has no reliable candle timestamp.
+            data_age_seconds=None,
+            freshness_verified=None,
+        )
+        downgrade_unsafe_signal(signal, safety_errors)
         elapsed = time.monotonic() - started
         if frame_gate is not None:
             frame_gate.mark_processed(digest)

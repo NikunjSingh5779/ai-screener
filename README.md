@@ -139,3 +139,18 @@ These files are local user data and are gitignored. Back them up if you need to 
 - `--overlay --watch`: floating panel + polling
 
 Keep credentials in `.env`; never commit secrets.
+
+
+### Deterministic safety guards
+
+Directional suggestions are checked in application code after model parsing and before
+the overlay, risk sizing, or logging. Checks cover supported markets, common
+cryptocurrency pairs, configured market/symbol conflicts, missing/non-finite levels,
+incorrect BUY/SELL ordering, and reward/risk below 1.5:1. Failed checks downgrade
+the suggestion to WATCH and clear actionable levels. Model/Mica classifications are
+advisory only and cannot override these checks.
+
+The screenshot-only provider interface does not expose the latest market candle's
+timestamp. Capture time is not market-data freshness evidence. The validation module
+can block explicit stale or unverified timestamp evidence, but end-to-end stale-data
+detection still requires a trustworthy candle-timestamp source.
