@@ -150,9 +150,4 @@ incorrect BUY/SELL ordering, and reward/risk below 1.5:1. Failed checks downgrad
 the suggestion to WATCH and clear actionable levels. Model/Mica classifications are
 advisory only and cannot override these checks.
 
-The screenshot-only provider interface does not expose the latest market candle's
-timestamp. Capture time is not market-data freshness evidence. Therefore, BUY/SELL
-suggestions are downgraded to WATCH until a trusted market-data adapter supplies
-timestamp-derived freshness evidence. HOLD/WATCH responses remain available. Do not
-bypass this guard just to obtain directional suggestions; connect a reliable timestamp
-source and validate its latency and clock semantics first.
+This project does **not** call an external market-data API. The local vision model must report explicit visible `chart_status="live"`, `timestamp_visible=true`, and a readable `latest_candle_time` before a BUY/SELL suggestion can pass the freshness gate. Delayed, unknown, or unreadable chart freshness becomes WATCH with actionable levels cleared. This is a **visual assessment, not independent proof of live market data**: a frozen browser, delayed exchange feed, replay, or misleading chart indicator can still fool the model. Keep verifying the ticker, timeframe, current price, and candle status yourself. The app remains advisory-only and never places orders.
