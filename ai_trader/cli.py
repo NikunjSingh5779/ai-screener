@@ -174,6 +174,9 @@ def read_signal(
                 "Verify the visible chart symbol and capture region. " + signal.reasoning
             ).strip()
         # Model output is not the safety authority. Apply deterministic checks before rendering.
+        # The screenshot-only pipeline has no trusted candle timestamp today.
+        # Fail closed until a market-data adapter supplies timestamp-derived evidence.
+        data_age_seconds, freshness_verified = _market_data_freshness(cfg, signal)
         safety_errors = validate_signal_safety(
             action=signal.action,
             market=signal.market,
@@ -183,9 +186,8 @@ def read_signal(
             target=signal.target,
             expected_market=expected_market,
             symbol_hint=str(getattr(cfg, "symbol_hint", "") or ""),
-            # The screenshot-only pipeline has no trusted candle timestamp today.
-            # Fail closed until a market-data adapter supplies timestamp-derived evidence.
-            data_age_seconds, freshness_verified = _market_data_freshness(cfg, signal),
+            data_age_seconds=data_age_seconds,
+            freshness_verified=freshness_verified,
         )
         downgrade_unsafe_signal(signal, safety_errors)
         elapsed = time.monotonic() - started
