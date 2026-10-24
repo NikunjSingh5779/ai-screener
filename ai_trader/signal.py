@@ -44,6 +44,7 @@ Chart-reading procedure (inspect the full captured chart before deciding):
 6. Check whether price is too extended, choppy, near an opposing level, or has insufficient room to the target. Require at least 1.5:1 potential reward/risk after accounting for the stop distance.
 Decision rules:
 - If the screenshot is not a trading chart, return "watch".
+- This screener supports listed equities only. If the visible instrument is a cryptocurrency pair (for example BTCUSD, BTCUSDT or ETHUSD) or a crypto exchange, return "watch" with null actionable levels.
 - Never invent a price, symbol, timeframe, exchange, indicator, volume reading, candle state or pattern.
 - If the ticker/exchange, timeframe, price scale or setup is unclear, return "watch" or "hold", with null actionable levels.
 - Intraday only: use a clearly visible 5m/15m or other intraday timeframe. For daily/weekly or unknown timeframe, return "watch".

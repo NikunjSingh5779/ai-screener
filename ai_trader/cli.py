@@ -31,6 +31,38 @@ from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
 
 
+# This screener intentionally supports equities, not crypto spot/perpetual pairs.
+_CRYPTO_EXCHANGES = frozenset({
+    "BINANCE", "COINBASE", "KRAKEN", "BITSTAMP", "BYBIT", "OKX",
+    "BITFINEX", "KUCOIN", "GEMINI", "CRYPTO",
+})
+_CRYPTO_BASE_TICKERS = frozenset({
+    "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT",
+    "LINK", "LTC", "BCH", "XLM", "TRX", "TON", "SHIB", "PEPE", "SUI",
+    "APT", "NEAR", "ICP", "ETC", "FIL", "ARB", "OP", "UNI", "AAVE",
+    "MKR", "ATOM", "XMR", "ALGO", "VET", "INJ", "SEI", "FET",
+})
+_CRYPTO_QUOTE_TICKERS = ("USDT", "USDC", "BUSD", "FDUSD", "TUSD", "USD", "EUR", "GBP", "BTC", "ETH", "BNB")
+
+
+def _looks_like_crypto_symbol(symbol: str) -> bool:
+    """Recognize common crypto pair symbols so AUTO mode cannot trade them as equities."""
+    raw = str(symbol or "").strip().upper()
+    if not raw:
+        return False
+    if ":" in raw:
+        exchange, raw = raw.split(":", 1)
+        if exchange.strip() in _CRYPTO_EXCHANGES:
+            return True
+    ticker = "".join(char for char in raw if char.isalnum())
+    if ticker in _CRYPTO_BASE_TICKERS:
+        return True
+    return any(
+        ticker.endswith(quote) and ticker[:-len(quote)] in _CRYPTO_BASE_TICKERS
+        for quote in _CRYPTO_QUOTE_TICKERS
+    )
+
+
 def build_pipeline(cfg):
     guard = RateGuard(calls_per_minute=cfg.calls_per_minute, min_interval_seconds=cfg.min_interval_seconds)
     client = VisionClient(
@@ -115,6 +147,19 @@ def read_signal(
             signal.reasoning = (
                 f"NO TRADE: configured market is {expected_market}, but the model read {actual_market}. "
                 "Verify the chart symbol and exchange. " + signal.reasoning
+            ).strip()
+        elif _looks_like_crypto_symbol(signal.symbol):
+            # The model can mislabel a crypto pair such as BTCUSD as "US".
+            # Reject it before it reaches the overlay, sizing, or trade log.
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.position_size_pct = None
+            signal.quantity = None
+            signal.market = ""
+            signal.currency = None
+            signal.reasoning = (
+                "NO TRADE: this screener supports NSE/BSE/US-listed equities, not cryptocurrency pairs. "
+                "Verify the visible chart symbol and capture region. " + signal.reasoning
             ).strip()
         elapsed = time.monotonic() - started
         if frame_gate is not None:

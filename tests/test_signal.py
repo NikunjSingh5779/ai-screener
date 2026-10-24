@@ -388,6 +388,14 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
 
 
+def test_prompt_explicitly_rejects_crypto_pairs() -> None:
+    prompt = SignalEngine().build_prompt()
+    assert "listed equities only" in prompt
+    assert "cryptocurrency pair" in prompt
+    assert "BTCUSD" in prompt
+    assert 'return "watch" with null actionable levels' in prompt
+
+
 def test_prompt_includes_detailed_chart_reading_checklist() -> None:
     prompt = SignalEngine().build_prompt()
     assert "Chart-reading procedure" in prompt

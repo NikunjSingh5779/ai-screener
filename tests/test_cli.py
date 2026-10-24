@@ -462,6 +462,43 @@ def test_auto_mode_accepts_explicitly_identified_us_equity(monkeypatch) -> None:
     assert result.ctx.signal.currency == "USD"
 
 
+def test_crypto_pairs_are_downgraded_to_watch_in_auto_mode(monkeypatch) -> None:
+    """Crypto pairs must not pass as US-listed equities just because the model says market=US."""
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response_template = {
+        "action": "sell",
+        "confidence": 65,
+        "entry": 80054,
+        "stop_loss": 80150,
+        "target": 79900,
+        "position_size_pct": 2,
+        "timeframe": "5m",
+        "reasoning": "Illustrative model output.",
+        "market": "US",
+    }
+    engine = SignalEngine(market="AUTO", market_notes=cfg.market_notes, min_flip_hold_seconds=0.0)
+
+    for symbol in ("BTCUSD", "BTC/USDT", "BINANCE:BTCUSDT", "ETHUSD"):
+        response = {**response_template, "symbol": symbol}
+        result = read_signal(cfg, _DictStyleCapture(json.dumps(response)), engine)
+
+        assert result.ctx is not None
+        assert result.ctx.signal.action == "watch"
+        assert result.ctx.signal.entry is None
+        assert result.ctx.signal.stop_loss is None
+        assert result.ctx.signal.target is None
+        assert result.ctx.signal.position_size_pct is None
+        assert result.ctx.signal.quantity is None
+        assert result.ctx.signal.market == ""
+        assert result.ctx.signal.currency is None
+        assert "not cryptocurrency pairs" in result.ctx.signal.reasoning
+
+
 def test_selected_market_mismatch_is_downgraded_to_watch(monkeypatch) -> None:
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
