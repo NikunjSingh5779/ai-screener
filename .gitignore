@@ -25,3 +25,8 @@ pytest_output.txt
 .claude/patches/
 .claude/scratch-read/
 .claude/scratch-live/
+
+# Local manual trade state and personal trade journal
+Manual_Trade_State.json
+Manual_Trade_State.json.tmp
+Manual_Trade_Journal.csv

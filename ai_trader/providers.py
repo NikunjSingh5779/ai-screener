@@ -34,8 +34,11 @@ logger = logging.getLogger(__name__)
 OPENROUTER_DEFAULT_URL = "https://openrouter.ai/api/v1"
 ANTHROPIC_DEFAULT_URL = "https://api.anthropic.com"
 LMSTUDIO_DEFAULT_URL = "http://localhost:1234/v1"
+POLYSTRATA_DEFAULT_URL = "http://127.0.0.1:8080/v1"
 ANTHROPIC_VERSION = "2023-06-01"
-DEFAULT_MAX_TOKENS = 1024
+DEFAULT_MAX_TOKENS = 1024  # Keep hosted-provider output conservative; this project is configured local-only.
+LOCAL_MAX_TOKENS = 8192
+LOCAL_REASONING_EFFORT = "low"
 
 
 def _load_dotenv(path: str | Path | None = None) -> bool:
@@ -87,26 +90,25 @@ class Provider(Protocol):
 
 
 class NoOpProvider:
-    """Deterministic offline mock. Returns a schema-shaped signal so the whole
-    pipeline runs and is testable with zero API keys and zero spend."""
+    """Deterministic offline mock. Never represents real market analysis."""
 
     name = "noop"
 
     def analyze(self, image_b64: str, mime: str, prompt: str) -> ProviderResult:
-        del image_b64, mime, prompt  # unused by the mock
+        del image_b64, mime, prompt
         return ProviderResult(
             text=json.dumps(
                 {
                     "action": "hold",
-                    "confidence": 50,
+                    "confidence": 0,
                     "entry": None,
                     "stop_loss": None,
                     "target": None,
                     "position_size_pct": None,
-                    "timeframe": "15m",
+                    "timeframe": "",
                     "reasoning": (
-                        "NoOp provider: no API key configured. "
-                        "This is a mock signal for offline testing."
+                        "TEST MODE ONLY: no vision model produced this output. "
+                        "Do not interpret as a market signal or trade."
                     ),
                     "market": "",
                     "symbol": "",
@@ -345,9 +347,11 @@ class LMStudioProvider:
         base_url: str | None = None,
         timeout: float = 120.0,
         transport: httpx.BaseTransport | None = None,
+        api_key: str | None = None,
     ) -> None:
         self.model = model or os.getenv("AI_TRADER_LMSTUDIO_MODEL") or os.getenv("LMSTUDIO_MODEL") or "local-model"
         self.base_url = (base_url or os.getenv("AI_TRADER_LMSTUDIO_BASE_URL") or os.getenv("LMSTUDIO_BASE_URL") or self.default_base_url).rstrip("/")
+        self.api_key = api_key or os.getenv("AI_TRADER_LMSTUDIO_API_KEY") or os.getenv("LMSTUDIO_API_KEY") or ""
         self.timeout = timeout
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
@@ -364,16 +368,31 @@ class LMStudioProvider:
                     ],
                 }
             ],
-            "max_tokens": DEFAULT_MAX_TOKENS,
+            "max_tokens": LOCAL_MAX_TOKENS,
+            "temperature": 0.1,
         }
+        # Keep reasoning bounded for structured chart reads. Strata warned that
+        # medium reasoning can consume the entire completion allowance before
+        # emitting JSON; low effort leaves budget for the actual signal.
+        if self.name in {"polystrata", "strata"}:
+            payload["reasoning_effort"] = LOCAL_REASONING_EFFORT
+            payload["reasoning_budget_tokens"] = 1024
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         try:
-            response = self._client.post(url, json=payload)
+            response = self._client.post(url, json=payload, headers=headers)
             response.raise_for_status()
             data = response.json()
         except httpx.ConnectError as exc:
-            raise ProviderError(
-                "LM Studio not running — start it, load a vision model, and enable the local server at http://localhost:1234"
-            ) from exc
+            if self.name in {"polystrata", "strata"}:
+                message = (
+                    f"Local OpenAI-compatible vision server not running at {self.base_url}. "
+                    "Start PolyStrata/Strata and confirm the model has image input enabled."
+                )
+            else:
+                message = (
+                    f"LM Studio not running — start it or configure the local OpenAI-compatible server at {self.base_url}"
+                )
+            raise ProviderError(message) from exc
         except httpx.HTTPStatusError as exc:
             raise ProviderError(
                 f"LM Studio HTTP {exc.response.status_code}: {exc.response.text[:200]}"
@@ -384,14 +403,84 @@ class LMStudioProvider:
         if isinstance(data, dict) and "error" in data:
             raise ProviderError(f"LM Studio returned an error: {data['error']}")
         try:
-            text = data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise ProviderError(f"LM Studio response missing content: {data}") from exc
+            choice = data["choices"][0]
+            message = choice["message"]
+            text = message.get("content")
+            finish_reason = choice.get("finish_reason")
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
+            raise ProviderError(
+                f"LM Studio response missing a valid choice/message structure: {data}"
+            ) from exc
+
+        # Some OpenAI-compatible runtimes return HTTP 200 with null/empty
+        # content, or truncate generation at the token limit. Never pass that
+        # value downstream to the JSON parser as if it were a model answer.
+        if finish_reason == "length":
+            raise ProviderError(
+                f"Local vision response was truncated at max_tokens={LOCAL_MAX_TOKENS} "
+                "(finish_reason='length'); if Strata was still thinking, lower "
+                "reasoning_effort/reasoning_budget_tokens so it can emit the JSON answer"
+            )
+        if not isinstance(text, str) or not text.strip():
+            raise ProviderError(
+                "Local vision server returned empty or non-text message.content "
+                f"(finish_reason={finish_reason!r}); inspect Strata's model output/template"
+            )
+
         served_model = data.get("model", self.model)
-        return ProviderResult(text=text, model=f"lmstudio/{served_model}")
+        return ProviderResult(text=text, model=f"{self.name}/{served_model}")
 
     def close(self) -> None:
         self._client.close()
+
+
+class PolyStrataProvider(LMStudioProvider):
+    """Vision model through PolyStrata/Strata's local OpenAI-compatible API.
+
+    PolyStrata's default server is http://127.0.0.1:8080/v1. Strata and
+    PolyStrata can use a model ID reported by GET /v1/models; the API accepts
+    image_url messages only when the selected model/runtime has image support.
+    """
+
+    name = "polystrata"
+    default_base_url = POLYSTRATA_DEFAULT_URL
+
+    def __init__(
+        self,
+        model: str | None = None,
+        base_url: str | None = None,
+        timeout: float = 180.0,
+        transport: httpx.BaseTransport | None = None,
+        api_key: str | None = None,
+    ) -> None:
+        super().__init__(
+            model=(
+                model
+                or os.getenv("AI_TRADER_POLYSTRATA_MODEL")
+                or os.getenv("POLYSTRATA_MODEL")
+                or os.getenv("AI_TRADER_STRATA_MODEL")
+                or os.getenv("STRATA_MODEL")
+                or "strata"
+            ),
+            base_url=(
+                base_url
+                or os.getenv("AI_TRADER_POLYSTRATA_BASE_URL")
+                or os.getenv("POLYSTRATA_BASE_URL")
+                or os.getenv("AI_TRADER_STRATA_BASE_URL")
+                or os.getenv("STRATA_BASE_URL")
+                or self.default_base_url
+            ),
+            timeout=timeout,
+            transport=transport,
+            api_key=(
+                api_key
+                or os.getenv("AI_TRADER_POLYSTRATA_API_KEY")
+                or os.getenv("POLYSTRATA_API_KEY")
+                or os.getenv("AI_TRADER_STRATA_API_KEY")
+                or os.getenv("STRATA_API_KEY")
+                or ""
+            ),
+        )
 
 
 def _base_models() -> dict[str, type]:
@@ -402,11 +491,13 @@ def _base_models() -> dict[str, type]:
         "anthropic": AnthropicProvider,
         "ollama": OllamaProvider,
         "lmstudio": LMStudioProvider,
+        "polystrata": PolyStrataProvider,
+        "strata": PolyStrataProvider,
     }
 
 
 _CLOUD_PROVIDERS = frozenset({"openrouter", "anthropic"})
-_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio"})
+_LOCAL_PROVIDERS = frozenset({"ollama", "lmstudio", "polystrata", "strata"})
 
 
 def _cloud_keys_present() -> list[str]:
@@ -438,6 +529,13 @@ def _order_chain(cfg: Config) -> list[str]:
         frame never leaves the machine (plan §2.1 privacy guard).
     ``noop`` is always guaranteed last (offline last resort).
     """
+    # Strict local-only mode: aliases resolve to one canonical Strata provider.
+    # Ignore cloud/local alternatives and never append a mock fallback.
+    configured = [name.strip().lower() for name in cfg.provider_chain]
+    if not configured or any(name not in {"polystrata", "strata"} for name in configured):
+        raise ProviderError("Only the local PolyStrata/Strata provider is allowed. Set AI_TRADER_PROVIDERS=polystrata or strata.")
+    return ["polystrata"]
+
     names: list[str] = []
     for name in cfg.provider_chain:
         if name == "noop":
@@ -460,8 +558,7 @@ def _order_chain(cfg: Config) -> list[str]:
 
 
 def make_provider_chain(cfg: Config) -> list[Provider]:
-    """Build provider backends in resolved order, always guaranteeing a ``noop``
-    last resort so the chain never has zero backends (offline-safe).
+    """Build exactly one local PolyStrata/Strata provider; never use a mock fallback.
 
     The effective order (see :func:`_order_chain`) is logged once at INFO so
     the intended chain is visible before any call happens — a keyed cloud
@@ -484,20 +581,28 @@ def make_provider_chain(cfg: Config) -> list[Provider]:
         elif name == "ollama":
             built.append(cls(model=cfg.model_ollama))
         elif name == "lmstudio":
-            built.append(cls(model=cfg.model_lmstudio))
+            built.append(cls(model=cfg.model_lmstudio, base_url=cfg.lmstudio_base_url, api_key=cfg.lmstudio_api_key))
+        elif name in {"polystrata", "strata"}:
+            built.append(cls(
+                model=cfg.model_polystrata,
+                base_url=cfg.polystrata_base_url,
+                api_key=cfg.polystrata_api_key,
+            ))
         else:
             built.append(cls())
-    if not any(p.name == "noop" for p in built):
-        built.append(NoOpProvider())
+    if len(built) != 1 or built[0].name != "polystrata":
+        for provider in built:
+            close = getattr(provider, "close", None)
+            if callable(close):
+                close()
+        raise ProviderError("Strict local mode requires exactly one PolyStrata/Strata provider; no fallback providers are enabled.")
     return built
 
 
 class VisionClient:
     """Resolves an analysis through the fallback chain behind the RateGuard.
 
-    With rotation enabled (default), the effective provider order rotates each
-    call so first-choice is spread across the chain (plan §3); ``noop`` is
-    pinned last as the offline last resort.
+    Strict local mode has exactly one provider and never rotates to a mock or cloud backend.
     """
 
     def __init__(

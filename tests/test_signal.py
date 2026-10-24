@@ -3,6 +3,8 @@ flip-flop guard."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from ai_trader.signal import SignalEngine, TradingSignal, extract_json
@@ -12,7 +14,7 @@ GOOD_JSON = """{
   "confidence": 72,
   "entry": 245.5,
   "stop_loss": 240.1,
-  "target": 252.0,
+  "target": 255.0,
   "position_size_pct": 4.5,
   "timeframe": "15m",
   "reasoning": "breakout above resistance on volume",
@@ -67,14 +69,14 @@ def test_parse_coerces_model_number_formats() -> None:
           "confidence": "high",
           "entry": "₹24,583",
           "stop_loss": "24,000.50",
-          "target": "$25,100",
+          "target": "$25,500",
           "position_size_pct": "4.5%"
         }"""
     )
     assert signal.confidence == 75.0
     assert signal.entry == 24583.0
     assert signal.stop_loss == 24000.5
-    assert signal.target == 25100.0
+    assert signal.target == 25500.0
     assert signal.position_size_pct == 4.5
 
 
@@ -230,7 +232,7 @@ def test_parse_keeps_valid_buy_levels() -> None:
           "confidence": 72,
           "entry": 245.5,
           "stop_loss": 240.1,
-          "target": 252.0,
+          "target": 255.0,
           "timeframe": "15m",
           "reasoning": "breakout",
           "market": "NSE",
@@ -268,6 +270,54 @@ def test_parse_skips_check_when_levels_missing() -> None:
         '{"action":"buy","confidence":60,"entry":null,"stop_loss":null,"target":null}'
     )
     assert signal.action == "buy"
+
+
+@pytest.mark.parametrize(
+    ("action", "entry", "stop", "target", "expected_ratio"),
+    [
+        ("buy", 212.19, 211.64, 212.30, "0.20:1"),
+        ("sell", 100.0, 105.0, 99.0, "0.20:1"),
+    ],
+)
+def test_parse_downgrades_inadequate_reward_risk_to_watch(
+    action: str, entry: float, stop: float, target: float, expected_ratio: str
+) -> None:
+    signal = SignalEngine.parse(
+        json.dumps(
+            {
+                "action": action,
+                "confidence": 85,
+                "entry": entry,
+                "stop_loss": stop,
+                "target": target,
+                "position_size_pct": 2.0,
+                "timeframe": "15m",
+                "reasoning": "Illustrative setup.",
+                "market": "US",
+                "symbol": "NVDA",
+            }
+        )
+    )
+    assert signal.action == "watch"
+    assert signal.entry is None
+    assert signal.stop_loss is None
+    assert signal.target is None
+    assert signal.position_size_pct is None
+    assert expected_ratio in signal.reasoning
+    assert "minimum 1.50:1" in signal.reasoning
+    assert "original entry" in signal.reasoning
+
+
+def test_parse_keeps_setup_at_minimum_reward_risk_ratio() -> None:
+    # Reward 1.5, risk 1.0 => exactly the configured 1.5:1 threshold.
+    signal = SignalEngine.parse(
+        '{"action":"buy","confidence":70,"entry":100,"stop_loss":99,'
+        '"target":101.5,"timeframe":"15m","market":"US","symbol":"TEST"}'
+    )
+    assert signal.action == "buy"
+    assert signal.entry == 100.0
+    assert signal.stop_loss == 99.0
+    assert signal.target == 101.5
 
 
 def test_parse_keeps_hold_with_backwards_levels() -> None:
@@ -320,10 +370,83 @@ def test_parse_coerces_price_with_currency_suffix_or_tilde() -> None:
           "confidence": 50,
           "entry": "24,583 INR",
           "stop_loss": "~24000.5",
-          "target": "25100 USD"
+          "target": "25500 USD"
         }"""
     )
     assert signal.entry == 24583.0
     assert signal.stop_loss == 24000.5
-    assert signal.target == 25100.0
+    assert signal.target == 25500.0
 
+
+
+def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
+    prompt = SignalEngine().build_prompt()
+    assert "Never invent a price" in prompt
+    assert 'return "watch" or "hold"' in prompt
+    assert "not a probability of profit" in prompt
+    assert "short intraday trades only" in prompt
+    assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
+
+
+def test_prompt_explicitly_rejects_crypto_pairs() -> None:
+    prompt = SignalEngine().build_prompt()
+    assert "listed equities only" in prompt
+    assert "cryptocurrency pair" in prompt
+    assert "BTCUSD" in prompt
+    assert 'return "watch" with null actionable levels' in prompt
+
+
+def test_prompt_includes_detailed_chart_reading_checklist() -> None:
+    prompt = SignalEngine().build_prompt()
+    assert "Chart-reading procedure" in prompt
+    assert "latest price label, price scale and time axis" in prompt
+    assert "Never invent a price" in prompt
+    assert "Do not claim a candle has closed" in prompt
+    assert "reasoning" in prompt
+    assert "at least 1.5 times the entry-to-stop distance" in prompt
+
+
+def test_auto_market_prompt_contains_indian_and_us_guidance() -> None:
+    prompt = SignalEngine(market="AUTO", market_notes=MARKET_NOTES).build_prompt()
+    assert "Market hint: AUTO" in prompt
+    assert "NSE cash market" in prompt
+    assert "US equities" in prompt
+    assert "visible ticker/exchange label" in prompt
+
+
+@pytest.mark.parametrize(
+    ("market", "symbol", "expected_market", "expected_symbol", "currency"),
+    [
+        ("NSE", "NSE:RELIANCE", "NSE", "RELIANCE", "INR"),
+        ("BSE", "BSE:TCS", "BSE", "TCS", "INR"),
+        ("NASDAQ", "NASDAQ:TSLA", "US", "TSLA", "USD"),
+        ("NYSE", "NYSE:IBM", "US", "IBM", "USD"),
+        ("US equities", "AAPL", "US", "AAPL", "USD"),
+    ],
+)
+def test_parse_normalizes_supported_market_symbol_and_currency(
+    market: str,
+    symbol: str,
+    expected_market: str,
+    expected_symbol: str,
+    currency: str,
+) -> None:
+    import json
+
+    signal = SignalEngine.parse(json.dumps({
+        "action": "hold",
+        "confidence": 50,
+        "market": market,
+        "symbol": symbol,
+    }))
+    assert signal.market == expected_market
+    assert signal.symbol == expected_symbol
+    assert signal.currency == currency
+
+
+def test_parse_does_not_invent_currency_for_unknown_market() -> None:
+    signal = SignalEngine.parse(
+        '{"action":"hold","confidence":50,"market":"LSE","symbol":"ABC"}'
+    )
+    assert signal.market == "LSE"
+    assert signal.currency is None

@@ -65,6 +65,49 @@ def test_manual_read_still_analyzes_an_unchanged_frame(monkeypatch) -> None:
     assert client.calls == 2
 
 
+def test_once_delay_parses_as_seconds() -> None:
+    args = build_arg_parser().parse_args(["--once", "--delay", "8"])
+    assert args.once is True
+    assert args.delay == 8.0
+
+
+def test_delay_rejects_negative_seconds() -> None:
+    import pytest
+
+    with pytest.raises(SystemExit):
+        build_arg_parser().parse_args(["--once", "--delay", "-1"])
+
+
+def test_once_delay_waits_before_capture_and_closes_client(monkeypatch) -> None:
+    events: list[object] = []
+
+    class ClosingClient:
+        def close(self) -> None:
+            events.append("close")
+
+    monkeypatch.setattr("ai_trader.cli.build_pipeline", lambda cfg: (ClosingClient(), object()))
+    monkeypatch.setattr("ai_trader.cli.do_read", lambda cfg, client, engine: events.append("capture"))
+    monkeypatch.setattr("ai_trader.cli.time.sleep", lambda seconds: events.append(("sleep", seconds)))
+
+    assert main(["--once", "--delay", "5"]) == 0
+    assert events == [("sleep", 5.0), "capture", "close"]
+
+
+def test_no_args_starts_overlay_with_monitoring(monkeypatch) -> None:
+    import sys
+    from types import SimpleNamespace
+
+    calls: list[tuple[object, str, bool]] = []
+    fake_overlay = SimpleNamespace(
+        run_overlay=lambda cfg, hotkey, watch: calls.append((cfg, hotkey, watch)) or 0
+    )
+    monkeypatch.setitem(sys.modules, "ai_trader.overlay_ui", fake_overlay)
+    monkeypatch.setattr("ai_trader.cli.load_config", lambda path=None: "test-config")
+
+    assert main([]) == 0
+    assert calls == [("test-config", "f8", True)]
+
+
 def test_watch_flag_parses_with_overlay() -> None:
     args = build_arg_parser().parse_args(["--overlay", "--watch"])
     assert args.overlay is True
@@ -107,6 +150,14 @@ def test_watch_loop_respects_max_iterations(monkeypatch) -> None:
     assert len(results) == 2
 
 
+def _provide_verified_freshness_for_test(monkeypatch) -> None:
+    """Simulate timestamp metadata only in tests of downstream accepted-signal paths."""
+    monkeypatch.setattr(
+        "ai_trader.cli._market_data_freshness",
+        lambda cfg, signal: (5.0, True),
+    )
+
+
 class _DictStyleCapture:
     """Response whose text uses the JSON dict-style the engine parses."""
 
@@ -119,12 +170,15 @@ class _DictStyleCapture:
 
 def test_do_read_emits_risk_sized_quantity(monkeypatch, capsys) -> None:
     """Task 2 accept: a directional signal past guard_flip gets risk-sized quantity."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
     )
     cfg = load_config()
     cfg.account_size = 100_000.0
+    cfg.account_currency = "INR"
+    cfg.market = "AUTO"
     cfg.risk_per_trade_pct = 1.0
 
     class SizedClient:
@@ -159,6 +213,7 @@ def test_do_read_emits_risk_sized_quantity(monkeypatch, capsys) -> None:
 def test_do_read_zero_account_keeps_quantity_none(monkeypatch, capsys) -> None:
     """Task 2 accept: unset/zero risk.account_size keeps quantity None and the
     CLI display path does not crash."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -190,6 +245,7 @@ def test_do_read_zero_account_keeps_quantity_none(monkeypatch, capsys) -> None:
 def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
     """Task 3 accept: a high-confidence directional signal past guard_flip
     raises the alert (the shared ``_emit_signal`` path)."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -204,7 +260,7 @@ def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
             # Structurally valid levels for the action (short: entry 100,
             # stop 105, target 95; long: entry 100, stop 99.5, target 105).
             stop_loss=105.0 if is_sell else 99.5,
-            target=95.0 if is_sell else 105.0,
+            target=92.0 if is_sell else 105.0,
             position_size_pct=1.5,
             timeframe="15m",
             reasoning="High-confidence reversal.",
@@ -216,8 +272,10 @@ def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
     engine = SignalEngine(min_flip_hold_seconds=0.0)
     alert = mock.Mock(return_value=True)
 
+    cfg = load_config()
+    cfg.market = "AUTO"
     with mock.patch("ai_trader.cli.alert", alert) as patched:
-        result = do_read(load_config(), _DictStyleCapture(respond("sell").text), engine)
+        result = do_read(cfg, _DictStyleCapture(respond("sell").text), engine)
 
     assert result.ctx is not None
     patched.assert_called_once()
@@ -228,6 +286,7 @@ def test_do_read_forwards_configured_threshold_to_alert(monkeypatch) -> None:
     """Task 3 accept: the CLI forwards the configured high-confidence threshold
     to ``alert()`` for every accepted signal; the at/above filtering itself is
     unit-tested in test_alerts.py."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -266,11 +325,13 @@ def test_do_read_forwards_configured_threshold_to_alert(monkeypatch) -> None:
 
 def test_do_read_suppressed_flip_never_alerts(monkeypatch) -> None:
     """Task 3 accept: a flip suppressed by guard_flip must not raise an alert."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
     )
     cfg = load_config()
+    cfg.market = "AUTO"
     assignments: list[tuple] = []
 
     class FlipClient:
@@ -286,7 +347,7 @@ def test_do_read_suppressed_flip_never_alerts(monkeypatch) -> None:
                 entry=100.0,
                 # Valid levels for either direction (buy: 99.5/105; sell: 105/95).
                 stop_loss=105.0 if action == "sell" else 99.5,
-                target=95.0 if action == "sell" else 105.0,
+                target=92.0 if action == "sell" else 105.0,
                 position_size_pct=1.5,
                 timeframe="15m",
                 reasoning="Flip-flop test.",
@@ -382,3 +443,119 @@ def test_main_invalid_region_returns_error(capsys) -> None:
     err = capsys.readouterr().err
     assert "Invalid region" in err
 
+
+
+def test_auto_mode_accepts_explicitly_identified_us_equity_when_freshness_is_verified(monkeypatch) -> None:
+    _provide_verified_freshness_for_test(monkeypatch)
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response = {
+        "action": "buy",
+        "confidence": 80,
+        "entry": 376.0,
+        "stop_loss": 370.0,
+        "target": 388.0,
+        "timeframe": "5m",
+        "reasoning": "Illustrative confirmed breakout",
+        "market": "NASDAQ",
+        "symbol": "NASDAQ:TSLA",
+    }
+    client = _DictStyleCapture(json.dumps(response))
+    engine = SignalEngine(market="AUTO", market_notes=cfg.market_notes, min_flip_hold_seconds=0.0)
+
+    result = read_signal(cfg, client, engine)
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "buy"
+    assert result.ctx.signal.market == "US"
+    assert result.ctx.signal.symbol == "TSLA"
+    assert result.ctx.signal.currency == "USD"
+
+
+def test_crypto_pairs_are_downgraded_to_watch_in_auto_mode(monkeypatch) -> None:
+    """Crypto pairs must not pass as US-listed equities just because the model says market=US."""
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response_template = {
+        "action": "sell",
+        "confidence": 65,
+        "entry": 80054,
+        "stop_loss": 80150,
+        "target": 79900,
+        "position_size_pct": 2,
+        "timeframe": "5m",
+        "reasoning": "Illustrative model output.",
+        "market": "US",
+    }
+    engine = SignalEngine(market="AUTO", market_notes=cfg.market_notes, min_flip_hold_seconds=0.0)
+
+    for symbol in ("BTCUSD", "BTC/USDT", "BINANCE:BTCUSDT", "ETHUSD"):
+        response = {**response_template, "symbol": symbol}
+        result = read_signal(cfg, _DictStyleCapture(json.dumps(response)), engine)
+
+        assert result.ctx is not None
+        assert result.ctx.signal.action == "watch"
+        assert result.ctx.signal.entry is None
+        assert result.ctx.signal.stop_loss is None
+        assert result.ctx.signal.target is None
+        assert result.ctx.signal.position_size_pct is None
+        assert result.ctx.signal.quantity is None
+        assert result.ctx.signal.market == ""
+        assert result.ctx.signal.currency is None
+        assert "not cryptocurrency pairs" in result.ctx.signal.reasoning
+
+
+def test_selected_market_mismatch_is_downgraded_to_watch(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "US"
+    engine = SignalEngine(market="US", market_notes=cfg.market_notes)
+
+    result = read_signal(cfg, FakeClient(), engine)
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is None
+    assert result.ctx.signal.stop_loss is None
+    assert result.ctx.signal.target is None
+    assert "configured market is US" in result.ctx.signal.reasoning
+
+
+def test_unknown_market_is_no_trade_watch_not_directional(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response = {
+        "action": "buy",
+        "confidence": 95,
+        "entry": 100,
+        "stop_loss": 95,
+        "target": 110,
+        "market": "UNKNOWN",
+        "symbol": "",
+    }
+    result = read_signal(
+        cfg,
+        _DictStyleCapture(json.dumps(response)),
+        SignalEngine(market="AUTO", market_notes=cfg.market_notes),
+    )
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is None
+    assert result.ctx.signal.currency is None
+    assert "NO TRADE" in result.ctx.signal.reasoning
