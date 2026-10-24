@@ -131,6 +131,30 @@ def test_valid_directional_signal_fails_closed_when_freshness_is_unknown(monkeyp
     assert "market-data freshness is explicitly unverified" in signal.reasoning
 
 
+def test_vision_only_live_chart_evidence_allows_directional_signal(monkeypatch) -> None:
+    result = _read(
+        monkeypatch,
+        _payload(chart_status="live", timestamp_visible=True, latest_candle_time="10:25"),
+    )
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "buy"
+    assert result.ctx.signal.entry == 100.0
+    assert result.ctx.signal.latest_candle_time == "10:25"
+
+
+def test_vision_only_delayed_chart_is_downgraded(monkeypatch) -> None:
+    result = _read(
+        monkeypatch,
+        _payload(chart_status="delayed", timestamp_visible=True, latest_candle_time="10:25"),
+    )
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is None
+    assert "freshness is explicitly unverified" in result.ctx.signal.reasoning
+
+
 def test_valid_directional_signal_can_pass_with_verified_freshness_metadata(monkeypatch) -> None:
     monkeypatch.setattr(
         "ai_trader.cli._market_data_freshness",
