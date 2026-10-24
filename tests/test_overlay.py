@@ -204,6 +204,7 @@ def test_overlay_window_renders_quantity_offscreen() -> None:
 
     cfg = load_config()
     cfg.account_size = 100_000.0
+    cfg.account_currency = "INR"
     cfg.risk_per_trade_pct = 1.0
     win = OverlayWindow(cfg=cfg)
     win._on_signal(ReadResult(ctx=ctx, elapsed=0.5))
@@ -271,3 +272,39 @@ def test_configure_high_dpi() -> None:
 
     configure_high_dpi()
 
+
+
+def test_overlay_warns_when_noop_mock_serves_signal() -> None:
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.cli import ReadResult
+
+    ctx = _ctx(model="noop/mock")
+    win = OverlayWindow()
+    win._on_signal(ReadResult(ctx=ctx, elapsed=0.1))
+    assert "TEST MODE" in win.snapshot()["status"]
+    win.close()
+    app.processEvents()
+
+
+def test_manual_trade_controls_follow_persisted_trade_state(tmp_path) -> None:
+    OverlayWindow, app = _offscreen_window()
+    from ai_trader.cli import ReadResult
+    from ai_trader.trade_tracker import ManualTradeTracker
+
+    ctx = _ctx(model="local/test", confidence=85.0)
+    tracker = ManualTradeTracker(
+        tmp_path / "Manual_Trade_State.json",
+        tmp_path / "Manual_Trade_Journal.csv",
+    )
+    win = OverlayWindow(manual_tracker=tracker)
+    win._on_signal(ReadResult(ctx=ctx, elapsed=0.2))
+    assert win._entered_button.isEnabled()
+    assert not win._exit_button.isEnabled()
+
+    tracker.open_trade(ctx, actual_entry=245.6, quantity=10, entered_at=1_700_000_100.0)
+    win._refresh_trade_controls()
+    assert not win._entered_button.isEnabled()
+    assert win._exit_button.isEnabled()
+    assert "ACTIVE MANUAL POSITION" in win.snapshot()["trade_status"]
+    win.close()
+    app.processEvents()

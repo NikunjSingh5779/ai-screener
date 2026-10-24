@@ -19,34 +19,41 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 logger = logging.getLogger(__name__)
 
 VALID_ACTIONS = {"buy", "sell", "hold", "watch"}
+MIN_REWARD_RISK_RATIO = 1.5
 
 DEFAULT_PROMPT_TEMPLATE = """\
-You are a trading analyst. The image is a chart screenshot from a trading platform.
-Analyze it and answer ONLY with a single JSON object — no prose, no markdown fences.
-
-Schema (use null when a level is not visible on the chart; never guess):
+You analyze chart screenshots for cautious, short intraday trades only. Return one valid JSON object, no prose or markdown:
 {{
   "action": "buy" | "sell" | "hold" | "watch",
-  "confidence": <0-100 number>,
-  "entry": <number or null>,
-  "stop_loss": <number or null>,
-  "target": <number or null>,
-  "position_size_pct": <0-100 number or null>,
-  "timeframe": "<e.g. 15m, 1h, 1d>",
-  "reasoning": "<1-2 sentence rationale>",
-  "market": "<NSE | BSE | US | Crypto, infer from the chart>",
-  "symbol": "<ticker inferred from the chart>"
+  "confidence": 0-100,
+  "entry": number or null,
+  "stop_loss": number or null,
+  "target": number or null,
+  "position_size_pct": number or null,
+  "timeframe": "visible timeframe or empty",
+  "reasoning": "one short sentence",
+  "market": "NSE" | "BSE" | "US" | "",
+  "symbol": "visible ticker or empty"
 }}
-
-Guidelines:
-- Base every number on what is visible on the chart; use null if a level is not
-  visible rather than guessing.
-- "confidence" reflects how clearly the setup reads; prefer honest mid values.
-- Advisory only — never imply order execution.
-
-Market hint: {market}. Symbol hint: {symbol_hint}.
-
-Market notes: {market_notes}"""
+Chart-reading procedure (inspect the full captured chart before deciding):
+1. Identify the visible ticker/exchange, timeframe, latest price label, price scale and time axis. Report only what can actually be read.
+2. Examine recent candles and visible swing highs/lows. Describe the current structure as trend, range/chop, breakout, retest, rejection or reversal only when the candles support it.
+3. Check visible support/resistance, trend lines, volume and indicators. Use an indicator only when it is visibly present and legible; never assume an indicator exists or invent its value. Prefer agreement between price action and the indicators that are actually shown.
+4. Judge whether the latest move has follow-through or is still forming. Do not claim a candle has closed or a breakout is confirmed unless the screenshot supports that conclusion.
+5. Locate a plausible entry, invalidation/stop and target using readable prices and visible structure. Do not fabricate exact levels from pixel position when the price scale is unreadable. Leave levels null if reliable prices cannot be established.
+6. Check whether price is too extended, choppy, near an opposing level, or has insufficient room to the target. Require at least 1.5:1 potential reward/risk after accounting for the stop distance.
+Decision rules:
+- If the screenshot is not a trading chart, return "watch".
+- This screener supports listed equities only. If the visible instrument is a cryptocurrency pair (for example BTCUSD, BTCUSDT or ETHUSD) or a crypto exchange, return "watch" with null actionable levels.
+- Never invent a price, symbol, timeframe, exchange, indicator, volume reading, candle state or pattern.
+- If the ticker/exchange, timeframe, price scale or setup is unclear, return "watch" or "hold", with null actionable levels.
+- Intraday only: use a clearly visible 5m/15m or other intraday timeframe. For daily/weekly or unknown timeframe, return "watch".
+- Buy only with visible bullish setup evidence and target > entry > stop_loss. Sell only with visible bearish setup evidence and target < entry < stop_loss. Otherwise return "watch" and null levels.
+- Only suggest buy/sell when the visible target offers at least 1.5 times the entry-to-stop distance; otherwise return "watch" and null levels.
+- "confidence" measures visual legibility and strength of chart evidence, not a probability of profit. Do not inflate it to force a trade.
+- Keep "reasoning" to one concise sentence naming the main visible evidence and the key uncertainty. Do not provide a long essay.
+- Infer market only from a visible ticker/exchange label. NSE/BSE use INR; US equities use USD. If uncertain, leave market and symbol empty.
+Market hint: {market}. Symbol hint: {symbol_hint}. Market notes: {market_notes}"""
 
 
 def _coerce_price(v: object) -> object:
@@ -87,7 +94,7 @@ class TradingSignal(BaseModel):
     )
     timeframe: str = Field(default="", description="e.g. 15m, 1h, 1d")
     reasoning: str = Field(default="", description="brief model rationale")
-    market: str = Field(default="", description="NSE | BSE | US | Crypto")
+    market: str = Field(default="", description="NSE | BSE | US")
     symbol: str = Field(default="", description="ticker inferred from the chart")
 
     @field_validator("action", mode="before")
@@ -135,6 +142,46 @@ class TradingSignal(BaseModel):
         """Allow model responses to use null for optional descriptive fields."""
         return "" if v is None else v
 
+    @field_validator("market", mode="before")
+    @classmethod
+    def _normalize_market(cls, v: object) -> object:
+        """Normalize common TradingView exchange labels to supported market codes."""
+        if not isinstance(v, str):
+            return v
+        raw = v.strip().upper()
+        if not raw:
+            return ""
+        token = raw.split(":", 1)[0].strip()
+        compact = " ".join(raw.replace("_", " ").split())
+        if token in {"NSE", "NSEI", "NSEINDIA"} or compact in {
+            "INDIA", "INDIAN EQUITIES", "NSE CASH", "NSE EQUITIES",
+        }:
+            return "NSE"
+        if token in {"BSE", "BSEINDIA", "BOM"} or compact in {"BSE CASH", "BSE EQUITIES"}:
+            return "BSE"
+        if token in {
+            "NYSE", "NASDAQ", "NASDAQGS", "NASDAQGM", "NASDAQCM", "NYSEARCA",
+            "NYSEAMERICAN", "AMEX", "ARCA", "CBOE", "IEX", "US",
+        } or compact in {"USA", "UNITED STATES", "US EQUITIES", "US STOCKS", "NYSE/NASDAQ"}:
+            return "US"
+        return raw
+
+    @field_validator("symbol", mode="before")
+    @classmethod
+    def _normalize_symbol(cls, v: object) -> object:
+        """Remove a recognized exchange prefix (e.g. NASDAQ:TSLA) from a ticker."""
+        if not isinstance(v, str):
+            return v
+        symbol = v.strip().upper()
+        if ":" in symbol:
+            exchange, ticker = symbol.split(":", 1)
+            if exchange in {
+                "NSE", "BSE", "NYSE", "NASDAQ", "NASDAQGS", "NASDAQGM",
+                "NASDAQCM", "NYSEARCA", "NYSEAMERICAN", "AMEX", "ARCA", "CBOE", "IEX",
+            } and ticker.strip():
+                return ticker.strip()
+        return symbol
+
     def validate_action(self) -> TradingSignal:
         """Ensure the model returned one of the supported signal actions."""
         if self.action not in VALID_ACTIONS:
@@ -155,8 +202,10 @@ def extract_json(text: str) -> dict:
     """Extract a JSON object from model output that may be fenced or verbose.
 
     Raises:
-        ValueError: if no parseable JSON object is found.
+        ValueError: if output is empty/non-text or no parseable JSON object is found.
     """
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError("model output is empty or not text")
     cleaned = text.strip()
     # Strip one code fence if present (```json ... ```).
     fence = re.search(r"```(?:json)?\s*(.*?)```", cleaned, re.DOTALL)
@@ -191,7 +240,7 @@ class SignalEngine:
 
     def __init__(
         self,
-        market: str = "NSE",
+        market: str = "AUTO",
         symbol_hint: str = "",
         market_notes: dict[str, str] | None = None,
         min_flip_hold_seconds: float = 60.0,
@@ -206,10 +255,17 @@ class SignalEngine:
         self._last_direction: dict[str, tuple[str, float]] = {}
 
     def build_prompt(self, symbol_hint: str | None = None) -> str:
+        if self.market == "AUTO":
+            note_keys = ("NSE", "BSE", "US")
+            market_note = "\n".join(
+                self.market_notes[key] for key in note_keys if key in self.market_notes
+            )
+        else:
+            market_note = self.market_notes.get(self.market, "")
         return self.prompt_template.format(
             market=self.market,
             symbol_hint=(symbol_hint or self.symbol_hint) or "unknown",
-            market_notes=self.market_notes.get(self.market, ""),
+            market_notes=market_note,
         )
 
     @staticmethod
@@ -221,6 +277,13 @@ class SignalEngine:
             logger.error("signal validation failed on raw text: %s", text)
             raise
         signal.quantity = None  # Ensure model never sets risk quantity
+        # Currency is determined by the normalized market, never trusted to the VLM.
+        if signal.market in {"NSE", "BSE"}:
+            signal.currency = "INR"
+        elif signal.market == "US":
+            signal.currency = "USD"
+        else:
+            signal.currency = None
         return _enforce_structure(signal)
 
     def guard_flip(self, symbol: str, signal: TradingSignal, now: float | None = None) -> bool:
@@ -248,16 +311,14 @@ class SignalEngine:
 
 
 def _enforce_structure(signal: TradingSignal) -> TradingSignal:
-    """Deterministic structural sanity check, independent of model quality.
+    """Apply deterministic sanity checks to directional model suggestions.
 
-    A directional call is only valid when the price levels are ordered
-    correctly — a long buys below and below-target above it; a short sells
-    above and below-target below it. A backwards level set (target above stop
-    on a sell, target below stop on a buy) is a model error that must never
-    reach the overlay or the trade logger as a trade. When invalid, the action
-    is downgraded to ``hold`` and the original numbers are kept in ``reasoning``
-    with a ``[STRUCTURALLY INVALID]`` marker, so the bad read stays visible
-    instead of being silently dropped.
+    BUY/SELL levels must have the correct order and at least
+    MIN_REWARD_RISK_RATIO potential reward for each unit of price risk.
+    Structurally invalid levels are downgraded to hold. Suggestions below
+    the reward/risk threshold are downgraded to watch and their actionable
+    levels are cleared; the original values and ratio remain in the reasoning.
+    This is a screening heuristic, not a profitability guarantee.
     """
     action = signal.action
     if action not in ("buy", "sell"):
@@ -265,18 +326,39 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
     entry, stop, target = signal.entry, signal.stop_loss, signal.target
     if entry is None or stop is None or target is None:
         return signal
+
     valid = (target > entry > stop) if action == "buy" else (target < entry < stop)
-    if valid:
+    if not valid:
+        marker = f"[STRUCTURALLY INVALID — downgraded from {action}]"
+        note = (
+            f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
+            f"({marker})"
+        )
+        signal.action = "hold"
+        signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
+        logger.warning(
+            "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
+            action, entry, stop, target,
+        )
         return signal
-    marker = f"[STRUCTURALLY INVALID — downgraded from {action}]"
-    note = (
-        f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
-        f"({marker})"
-    )
-    signal.action = "hold"
-    signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
-    logger.warning(
-        "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
-        action, entry, stop, target,
-    )
+
+    risk = (entry - stop) if action == "buy" else (stop - entry)
+    reward = (target - entry) if action == "buy" else (entry - target)
+    ratio = reward / risk
+    if ratio < MIN_REWARD_RISK_RATIO:
+        marker = f"[INADEQUATE REWARD/RISK — downgraded from {action}]"
+        note = (
+            f"original entry {entry}, stop_loss {stop}, target {target}; "
+            f"potential reward/risk {ratio:.2f}:1 is below the minimum "
+            f"{MIN_REWARD_RISK_RATIO:.2f}:1"
+        )
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
+        signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
+        logger.warning(
+            "inadequate reward/risk %.2f:1 downgraded %s signal to watch (minimum %.2f:1)",
+            ratio, action, MIN_REWARD_RISK_RATIO,
+        )
     return signal

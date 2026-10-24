@@ -14,13 +14,14 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from ai_trader.capture import FrameGate, frame_digest, grab_screen, image_to_base64_png
-from ai_trader.config import load_config, with_region
+from ai_trader.config import account_size_for_market, load_config, with_region
 from ai_trader.overlay import SignalView
 from ai_trader.providers import ProviderError, VisionClient, make_provider_chain
 from ai_trader.rate_guard import RateGuard
@@ -28,6 +29,38 @@ from ai_trader.signal import SignalContext, SignalEngine
 from ai_trader.logger import TradeLogger
 from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
+
+
+# This screener intentionally supports equities, not crypto spot/perpetual pairs.
+_CRYPTO_EXCHANGES = frozenset({
+    "BINANCE", "COINBASE", "KRAKEN", "BITSTAMP", "BYBIT", "OKX",
+    "BITFINEX", "KUCOIN", "GEMINI", "CRYPTO",
+})
+_CRYPTO_BASE_TICKERS = frozenset({
+    "BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT",
+    "LINK", "LTC", "BCH", "XLM", "TRX", "TON", "SHIB", "PEPE", "SUI",
+    "APT", "NEAR", "ICP", "ETC", "FIL", "ARB", "OP", "UNI", "AAVE",
+    "MKR", "ATOM", "XMR", "ALGO", "VET", "INJ", "SEI", "FET",
+})
+_CRYPTO_QUOTE_TICKERS = ("USDT", "USDC", "BUSD", "FDUSD", "TUSD", "USD", "EUR", "GBP", "BTC", "ETH", "BNB")
+
+
+def _looks_like_crypto_symbol(symbol: str) -> bool:
+    """Recognize common crypto pair symbols so AUTO mode cannot trade them as equities."""
+    raw = str(symbol or "").strip().upper()
+    if not raw:
+        return False
+    if ":" in raw:
+        exchange, raw = raw.split(":", 1)
+        if exchange.strip() in _CRYPTO_EXCHANGES:
+            return True
+    ticker = "".join(char for char in raw if char.isalnum())
+    if ticker in _CRYPTO_BASE_TICKERS:
+        return True
+    return any(
+        ticker.endswith(quote) and ticker[:-len(quote)] in _CRYPTO_BASE_TICKERS
+        for quote in _CRYPTO_QUOTE_TICKERS
+    )
 
 
 def build_pipeline(cfg):
@@ -94,12 +127,47 @@ def read_signal(
         prompt = engine.build_prompt()
         result = client.analyze(image_b64, "image/png", prompt)
         signal = engine.parse(result.text)
+        # The app accepts Indian cash equities and US-listed equities. In AUTO
+        # mode, unsupported/ambiguous market output must never remain directional.
+        supported_markets = {"NSE", "BSE", "US"}
+        expected_market = str(cfg.market or "AUTO").strip().upper()
+        actual_market = str(signal.market or "").strip().upper()
+        if actual_market not in supported_markets:
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.currency = None
+            signal.reasoning = (
+                "NO TRADE: exchange/market could not be confidently identified from the visible chart. "
+                + signal.reasoning
+            ).strip()
+        elif expected_market != "AUTO" and actual_market != expected_market:
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.currency = None
+            signal.reasoning = (
+                f"NO TRADE: configured market is {expected_market}, but the model read {actual_market}. "
+                "Verify the chart symbol and exchange. " + signal.reasoning
+            ).strip()
+        elif _looks_like_crypto_symbol(signal.symbol):
+            # The model can mislabel a crypto pair such as BTCUSD as "US".
+            # Reject it before it reaches the overlay, sizing, or trade log.
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.position_size_pct = None
+            signal.quantity = None
+            signal.market = ""
+            signal.currency = None
+            signal.reasoning = (
+                "NO TRADE: this screener supports NSE/BSE/US-listed equities, not cryptocurrency pairs. "
+                "Verify the visible chart symbol and capture region. " + signal.reasoning
+            ).strip()
         elapsed = time.monotonic() - started
         if frame_gate is not None:
             frame_gate.mark_processed(digest)
         # Suppress a buy/sell flip that happened too fast (plan §6: no flip on
         # ordinary chart noise). Hold/watch passes are never suppressed.
-        if not engine.guard_flip(signal.symbol, signal):
+        market_symbol_key = f"{signal.market}:{signal.symbol}"
+        if not engine.guard_flip(market_symbol_key, signal):
             return ReadResult(flip_suppressed=True, elapsed=elapsed)
         ctx = SignalContext(
             symbol=signal.symbol,
@@ -125,15 +193,24 @@ def _emit_signal(cfg, result: ReadResult) -> None:
     Advisory only: this prints and beeps; it never places a trade.
     """
     signal = result.ctx.signal
+    if result.ctx.model == "noop/mock":
+        print("\n[TEST MODE] No vision model produced this output. Do not treat it as a market signal.", file=sys.stderr)
+    market_account_size = account_size_for_market(cfg, signal.market)
     qty = compute_position_size(
-        cfg.account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
+        market_account_size, cfg.risk_per_trade_pct, signal.entry, signal.stop_loss
     )
     signal.quantity = qty
     if qty is not None:
         guess = signal.position_size_pct if signal.position_size_pct is not None else "n/a"
         sizing = f"size | model guess {guess}% | risk-sized qty {qty:g}"
     else:
-        sizing = "size | position sizing unavailable — set risk.account_size in config.toml"
+        if signal.market == "US":
+            balance_hint = "risk.account_size_usd (USD)"
+        elif signal.market in {"NSE", "BSE"}:
+            balance_hint = "risk.account_size_inr (INR)"
+        else:
+            balance_hint = "a market-specific account balance"
+        sizing = f"size | position sizing unavailable — configure {balance_hint} in config.toml"
     print("\n--- SIGNAL ---")
     print(json.dumps(signal.model_dump(), indent=2))
     print(f"provider/model: {result.ctx.model}   ({result.elapsed:.1f}s)")
@@ -227,6 +304,17 @@ def run_cli_watch(
     return 0
 
 
+def parse_nonnegative_seconds(value: str) -> float:
+    """Parse a finite, non-negative delay duration for CLI capture."""
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("delay must be a number of seconds") from exc
+    if not math.isfinite(seconds) or seconds < 0:
+        raise argparse.ArgumentTypeError("delay must be a finite, non-negative number of seconds")
+    return seconds
+
+
 def parse_region(value: str) -> tuple[int, int, int, int]:
     parts = [part.strip() for part in value.split(",")]
     if len(parts) != 4:
@@ -249,6 +337,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hotkey", default="f8", help="global hotkey to trigger a read (default: f8)")
     parser.add_argument("--once", action="store_true", help="take a single read and exit")
     parser.add_argument(
+        "--delay",
+        type=parse_nonnegative_seconds,
+        default=0.0,
+        metavar="SECONDS",
+        help="with --once, wait before capturing so you can switch to the chart window",
+    )
+    parser.add_argument(
         "--region",
         default=None,
         help="override capture region as left,top,width,height (e.g. 100,50,900,600)",
@@ -267,7 +362,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_arg_parser().parse_args(argv)
+    # Launch the floating monitor by default when the app is started without
+    # arguments. Explicit modes such as --once, --watch, or --hotkey preserve
+    # their documented CLI behavior for scripting and troubleshooting.
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    args = build_arg_parser().parse_args(raw_args)
+    if not raw_args:
+        args.overlay = True
+        args.watch = True
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
     cfg = load_config(args.config)
@@ -293,6 +395,12 @@ def main(argv: list[str] | None = None) -> int:
     trade_logger = TradeLogger(excel_path=cfg.excel_path)
 
     if args.once:
+        if args.delay > 0:
+            print(
+                f"\nCapturing in {args.delay:g} second(s) — switch to the trading chart now.",
+                flush=True,
+            )
+            time.sleep(args.delay)
         do_read(cfg, client, engine)
         client.close()
         return 0

@@ -1,65 +1,50 @@
-# AI Trader configuration — copy this file to config.toml and edit.
-# Every value below is a default; environment variables override the important ones
-# (AI_TRADER_REGION, AI_TRADER_PROVIDERS, AI_TRADER_INTERVAL, AI_TRADER_MARKET,
-#  AI_TRADER_OPENROUTER_MODEL).
+# Local-first configuration for AI Trader. Copy to config.toml before running.
 
 [capture]
-# Screen region to watch, in pixels relative to the primary monitor's top-left.
-# Set this to your trading platform window so we never capture the full desktop.
 region = { left = 0, top = 0, width = 1280, height = 720 }
 monitor = 1
+full_screen = false
 
 [polling]
-# Minimum seconds between reads (near-real-time, not tick-by-tick — plan §1).
-interval_seconds = 10
-# A buy/sell signal cannot flip direction within this window (plan §6).
+interval_seconds = 15
 min_flip_hold_seconds = 60
 
 [providers]
-# Ordered fallback chain. A keyed cloud provider (see .env.example) resolves
-# to the head; otherwise local providers run first (no API key, no rate limits).
-# Local options: ollama (http://localhost:11434), lmstudio (http://localhost:1234).
-# If local providers aren't running, falls forward to openrouter, then noop (offline mock).
-chain = ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
-# Skip a provider for this long after a throttle/error before trying it again.
-cooldown_seconds = 30
+# Strictly local; no mock or cloud fallback is enabled.
+# PolyStrata/Strata model server uses localhost:8080/v1 by default.
+# Use PolyStrata/Strata's image-enabled model API. No cloud is required.
+chain = ["polystrata"]
+cooldown_seconds = 45
+polystrata_base_url = "http://127.0.0.1:8080/v1"
+polystrata_api_key = ""
 
 [providers.budget]
-# Per-provider call budget so continuous polling survives a full session (plan §2.2).
-calls_per_minute = 6
-min_interval_seconds = 8
+calls_per_minute = 4
+min_interval_seconds = 15
 
 [providers.models]
-# Free vision models — verified live on openrouter.ai/api/v1/models (2026-08-10).
-# Override with env AI_TRADER_OPENROUTER_MODEL to compare without editing files.
 openrouter = "google/gemma-4-31b-it:free"
 anthropic = "claude-sonnet-5"
-# ── Best Local Vision Models for 12 GB VRAM (RTX 5070 Ti) ──
-# Recommended (best quality + speed tradeoff):
-#   ollama pull qwen2.5-vl:7b          ← ~5 GB VRAM, fast, excellent chart reads
-# Alternatives:
-#   ollama pull llava:7b                ← ~4.5 GB, slightly lower chart accuracy
-#   ollama pull minicpm-v:8b            ← ~5.5 GB, strong OCR but slower
-#   ollama pull llava-llama3:8b         ← ~5 GB, good general vision
-#   ollama pull qwen2.5-vl:3b          ← ~2 GB, fastest but lower quality
-#   ollama pull gemma3:12b              ← ~8 GB, very high quality, fills 12 GB
-# Override with env AI_TRADER_OLLAMA_MODEL.
 ollama = "qwen2.5-vl:7b"
-# Local model via LM Studio / llama.cpp / vLLM (OpenAI-compatible, port 1234).
-# Override with env AI_TRADER_LMSTUDIO_MODEL or LMSTUDIO_MODEL.
 lmstudio = "local-model"
+polystrata = "strata"
 
 [signal]
-# Defaults/labels for signals; the model may infer symbol/market from the chart.
-market = "NSE"
+# AUTO identifies NSE/BSE vs US from the visible TradingView exchange label.
+# Use "NSE", "BSE", or "US" to pin analysis to one market.
+market = "AUTO"
 symbol_hint = ""
-# Alerts sound and visually badge for directional signals at/above this threshold.
-high_confidence_threshold = 80
+high_confidence_threshold = 85
 
 [risk]
-# Account size in your base currency. Set to > 0 to enable risk-based position sizing.
-# If 0, position sizing is disabled.
+# Prefer separate balances so quantity calculations never mix INR and USD.
+account_size_inr = 0.0
+account_size_usd = 0.0
+# Legacy single balance. Used only with the matching account_currency.
 account_size = 0.0
-# Percentage of account capital risked per trade (e.g. 1.0 = 1%).
-risk_per_trade_pct = 1.0
+account_currency = "USD"
+risk_per_trade_pct = 0.5
 
+[logging]
+hotkey = "f9"
+excel_path = "Trade_Log_Tracker.xlsx"

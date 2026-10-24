@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QInputDialog,
+    QMessageBox,
     QLabel,
     QMenu,
     QPushButton,
@@ -35,11 +37,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ai_trader.config import Config, load_config
-from ai_trader.overlay import SignalView
+from ai_trader.config import Config, account_size_for_market, load_config
+from ai_trader.overlay import SignalView, format_age
 from ai_trader.logger import TradeLogger
 from ai_trader.alerts import alert
 from ai_trader.risk import compute_position_size
+from ai_trader.trade_tracker import ManualTradeError, ManualTradeTracker
+from ai_trader.rate_guard import minimum_safe_poll_interval_seconds
 
 if TYPE_CHECKING:  # pragma: no cover - type-only; cli is lazily imported at runtime
     from ai_trader.cli import ReadResult
@@ -72,6 +76,8 @@ class OverlayWindow(QWidget):
     read_requested = pyqtSignal()
     #: Request trade logging (hotkey or menu). Marshalled to GUI thread.
     log_requested = pyqtSignal()
+    #: Toggle periodic screen monitoring from the right-click menu.
+    watch_toggle_requested = pyqtSignal()
     #: Fired when the window is closed (run_overlay uses it to quit the app).
     closed = pyqtSignal()
     #: Transient status text (e.g. "Reading…") marshalled to the GUI thread.
@@ -83,13 +89,17 @@ class OverlayWindow(QWidget):
         self,
         trade_logger: TradeLogger | None = None,
         cfg: Config | None = None,
+        manual_tracker: ManualTradeTracker | None = None,
+        watch_enabled: bool = False,
     ) -> None:
         super().__init__()
+        self._watch_enabled = watch_enabled
         self._view: SignalView | None = None
         self._ctx: "SignalContext" | None = None
         self._drag_offset: tuple[float, float] | None = None
         self._trade_logger = trade_logger
         self._cfg = cfg
+        self._manual_tracker = manual_tracker or ManualTradeTracker()
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -107,6 +117,7 @@ class OverlayWindow(QWidget):
         self.log_requested.connect(self.log_current_signal)
 
         self._position()
+        self._refresh_trade_controls()
 
         # Tick the age line once a second (plan §2.5: "signal is 8s old").
         self._clock = QTimer(self)
@@ -194,8 +205,27 @@ class OverlayWindow(QWidget):
         self._footer.setStyleSheet(f"color:{DIM}; {FONT_SMALL}")
         layout.addWidget(self._footer)
 
+        self._trade_status = QLabel("Manual tracking only — no orders are placed")
+        self._trade_status.setStyleSheet(f"color:{DIM}; {FONT_SMALL}")
+        self._trade_status.setWordWrap(True)
+        layout.addWidget(self._trade_status)
+
+        trade_buttons = QHBoxLayout()
+        self._entered_button = QPushButton("I entered")
+        self._entered_button.setToolTip("Record an entry you already executed yourself; this does not place an order.")
+        self._entered_button.clicked.connect(self.record_manual_entry)
+        self._entered_button.setEnabled(False)
+        self._exit_button = QPushButton("Exit confirmed")
+        self._exit_button.setToolTip("Record an exit you already executed yourself; this does not place an order.")
+        self._exit_button.clicked.connect(self.record_manual_exit)
+        self._exit_button.setEnabled(False)
+        trade_buttons.addWidget(self._entered_button)
+        trade_buttons.addWidget(self._exit_button)
+        layout.addLayout(trade_buttons)
+
         self._status = QLabel("")
         self._status.setStyleSheet(f"color:{DIM}; {FONT_SMALL}")
+        self._status.setWordWrap(True)
         layout.addWidget(self._status)
 
     def _level_label(self) -> QLabel:
@@ -219,7 +249,8 @@ class OverlayWindow(QWidget):
         self._view = view
         self._action.setText(view.action_label)
         self._action.setStyleSheet(f"color:{view.color}; font-size:20px; font-weight:800;")
-        self._symbol.setText(f"{view.symbol} · {view.market}")
+        currency_label = f" · {view.currency}" if view.currency else ""
+        self._symbol.setText(f"{view.symbol} · {view.market}{currency_label}")
         self._confidence.setText(view.confidence)
         self._entry.setText(f"ENTRY {view.entry}")
         self._sl.setText(f"SL {view.stop_loss}")
@@ -267,6 +298,9 @@ class OverlayWindow(QWidget):
             "footer": self._footer.text(),
             "status": self._status.text(),
             "high_conf": self._high_conf.text(),
+            "trade_status": self._trade_status.text(),
+            "entered_button": self._entered_button.text(),
+            "exit_button": self._exit_button.text(),
         }
 
     # -- Slots --------------------------------------------------------------
@@ -286,8 +320,9 @@ class OverlayWindow(QWidget):
             if self._cfg is not None:
                 signal = result.ctx.signal
                 # Compute risk-based quantity and attach to signal.
+                market_account_size = account_size_for_market(self._cfg, signal.market)
                 qty = compute_position_size(
-                    self._cfg.account_size,
+                    market_account_size,
                     self._cfg.risk_per_trade_pct,
                     signal.entry,
                     signal.stop_loss,
@@ -301,6 +336,147 @@ class OverlayWindow(QWidget):
             else:
                 view = result.to_view()
             self.show_signal(view)
+            if result.ctx.model == "noop/mock":
+                self.show_error("TEST MODE — no model analysis. Do not trade from this output.")
+            self._refresh_trade_controls()
+
+    def _refresh_trade_controls(self) -> None:
+        """Show the persisted manual position and gate entry/exit controls."""
+        active = self._manual_tracker.active_trade
+        if active is not None:
+            self._trade_status.setText(
+                f"ACTIVE MANUAL POSITION: {active['side'].upper()} {active['quantity']} "
+                f"{active['symbol']} @ {float(active['actual_entry']):g} {active.get('currency') or ''} · "
+                "recorded only; no order was placed"
+            )
+            self._entered_button.setEnabled(False)
+            self._exit_button.setEnabled(True)
+            return
+
+        self._trade_status.setText("No tracked position · manual tracking only; no orders are placed")
+        signal = self._ctx.signal if self._ctx is not None else None
+        usable = (
+            signal is not None
+            and signal.action in {"buy", "sell"}
+            and self._ctx.model != "noop/mock"
+            and signal.entry is not None
+            and signal.stop_loss is not None
+            and signal.target is not None
+        )
+        self._entered_button.setEnabled(bool(usable))
+        self._exit_button.setEnabled(False)
+
+    def record_manual_entry(self) -> None:
+        """Ask for the actual user fill and persist it; never places an order."""
+        if self._manual_tracker.active_trade is not None:
+            self.show_error("A tracked position is already active. Record its exit first.")
+            self._refresh_trade_controls()
+            return
+        if self._ctx is None:
+            self.show_error("Read a real chart signal before recording an entry.")
+            return
+        signal = self._ctx.signal
+        if self._ctx.model == "noop/mock":
+            self.show_error("TEST MODE output cannot be used to record a trade.")
+            return
+        if signal.action not in {"buy", "sell"} or any(
+            value is None for value in (signal.entry, signal.stop_loss, signal.target)
+        ):
+            self.show_error("Only BUY/SELL signals with entry, stop-loss and target levels can be tracked.")
+            return
+        if signal.action == "sell":
+            answer = QMessageBox.question(
+                self,
+                "Confirm short-position tracking",
+                "For NSE cash equities, a SELL signal may mean exiting shares you already own. "
+                "Starting a new SELL trade here is tracked as a short position. Continue only "
+                "if your chosen product/account supports that trade. No order will be placed.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        default_entry = float(signal.entry or 0.0)
+        actual_entry, accepted = QInputDialog.getDouble(
+            self,
+            "Confirm manual entry",
+            f"Enter your ACTUAL fill price for {signal.action.upper()} {signal.symbol}. "
+            "This only records a trade you already executed:",
+            default_entry,
+            0.0,
+            1_000_000_000_000.0,
+            4,
+        )
+        if not accepted:
+            return
+        guessed_quantity = getattr(signal, "quantity", None)
+        quantity_default = max(0.0001, float(guessed_quantity)) if guessed_quantity else 1.0
+        if signal.market == "US":
+            quantity, accepted = QInputDialog.getDouble(
+                self,
+                "Confirm executed quantity",
+                "Enter the actual shares you filled (fractional US shares are allowed where supported):",
+                quantity_default,
+                0.0001,
+                1_000_000_000.0,
+                4,
+            )
+        else:
+            quantity, accepted = QInputDialog.getInt(
+                self,
+                "Confirm executed quantity",
+                "Enter the actual whole number of Indian cash-equity shares you filled:",
+                max(1, round(quantity_default)),
+                1,
+                1_000_000_000,
+                1,
+            )
+        if not accepted:
+            return
+        try:
+            self._manual_tracker.open_trade(self._ctx, actual_entry, quantity)
+        except ManualTradeError as exc:
+            self.show_error(str(exc))
+            self._refresh_trade_controls()
+            return
+        self._refresh_trade_controls()
+        self.set_status(
+            "Entry recorded locally. No order was placed. Use Exit confirmed only after you close it."
+        )
+
+    def record_manual_exit(self) -> None:
+        """Ask for the actual user exit fill and append the closed trade to CSV."""
+        active = self._manual_tracker.active_trade
+        if active is None:
+            self.show_error("There is no tracked position to close.")
+            self._refresh_trade_controls()
+            return
+        actual_exit, accepted = QInputDialog.getDouble(
+            self,
+            "Confirm manual exit",
+            f"Enter your ACTUAL exit fill price for {active['side'].upper()} "
+            f"{active['symbol']} ({active['quantity']} shares):",
+            0.0,
+            0.0,
+            1_000_000_000_000.0,
+            4,
+        )
+        if not accepted:
+            return
+        try:
+            closed = self._manual_tracker.close_trade(actual_exit)
+        except ManualTradeError as exc:
+            self.show_error(str(exc))
+            self._refresh_trade_controls()
+            return
+        self._refresh_trade_controls()
+        pnl = float(closed["gross_pnl_before_costs"])
+        self.set_status(
+            f"Exit recorded · gross P&L {closed.get('currency') or ''} {pnl:+,.2f} before fees/slippage · "
+            f"held {format_age(float(closed['holding_seconds']))}. "
+            "Saved to Manual_Trade_Journal.csv; no order was placed."
+        )
 
     def _update_age(self) -> None:
         if self._view is None:
@@ -333,14 +509,27 @@ class OverlayWindow(QWidget):
         menu = QMenu(self)
         read_action = menu.addAction("Read now")
         log_action = menu.addAction("Log trade")
+        watch_action = menu.addAction(
+            "Pause monitoring" if self._watch_enabled else "Resume monitoring"
+        )
         quit_action = menu.addAction("Quit")
         chosen = menu.exec(event.globalPos())
         if chosen is read_action:
             self.read_requested.emit()
         elif chosen is log_action:
             self.log_requested.emit()
+        elif chosen is watch_action:
+            self.watch_toggle_requested.emit()
         elif chosen is quit_action:
             self.close()
+
+    def set_watch_enabled(self, enabled: bool) -> None:
+        """Update monitoring state and the visible status line."""
+        self._watch_enabled = enabled
+        if enabled:
+            self.set_status("Monitoring active — right-click to pause")
+        else:
+            self.set_status("Monitoring paused — right-click to resume")
 
     def log_current_signal(self) -> None:
         if self._trade_logger is None:
@@ -383,8 +572,26 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     client, engine = build_pipeline(cfg)
     trade_logger = TradeLogger(excel_path=cfg.excel_path)
 
-    window = OverlayWindow(trade_logger=trade_logger, cfg=cfg)
-    window.set_status(f"Ready — press {hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log")
+    manual_tracker = ManualTradeTracker()
+    window = OverlayWindow(
+        trade_logger=trade_logger,
+        cfg=cfg,
+        manual_tracker=manual_tracker,
+        watch_enabled=watch,
+    )
+    poll_interval_seconds = minimum_safe_poll_interval_seconds(
+        cfg.interval_seconds,
+        cfg.calls_per_minute,
+        cfg.min_interval_seconds,
+    )
+    poll_interval_ms = max(1_000, round(poll_interval_seconds * 1_000))
+    if watch:
+        window.set_status(
+            f"Monitoring every {poll_interval_seconds:g}s — right-click to pause; "
+            f"{hotkey.upper()} to read now"
+        )
+    else:
+        window.set_status(f"Ready — press {hotkey.upper()} to read, {cfg.log_hotkey.upper()} to log")
     window.show()
 
     busy_lock = threading.Lock()
@@ -421,14 +628,23 @@ def run_overlay(cfg: Config, hotkey: str = "f8", watch: bool = False) -> int:
     window.read_requested.connect(perform_read)
     window.closed.connect(app.quit)
 
-    poll_timer: QTimer | None = None
+    poll_timer = QTimer(window)
+    poll_timer.timeout.connect(lambda: perform_read(skip_unchanged=True))
     if watch:
-        poll_timer = QTimer(window)
-        poll_timer.timeout.connect(lambda: perform_read(skip_unchanged=True))
-        poll_timer.start(max(1_000, round(cfg.interval_seconds * 1_000)))
-        window.closed.connect(poll_timer.stop)
-        window.set_status(f"Watching every {cfg.interval_seconds:g}s — press {hotkey.upper()} to force a read")
+        poll_timer.start(poll_interval_ms)
         QTimer.singleShot(0, lambda: perform_read(skip_unchanged=True))
+
+    def toggle_monitoring() -> None:
+        if poll_timer.isActive():
+            poll_timer.stop()
+            window.set_watch_enabled(False)
+        else:
+            poll_timer.start(poll_interval_ms)
+            window.set_watch_enabled(True)
+            perform_read(skip_unchanged=True)
+
+    window.watch_toggle_requested.connect(toggle_monitoring)
+    window.closed.connect(poll_timer.stop)
 
     keyboard = None
     try:

@@ -102,6 +102,7 @@ class SignalView:
     reasoning: str
     provider_model: str
     captured_at: float
+    currency: str = ""
     is_high_confidence: bool = False
     stale_after: float = DEFAULT_STALE_AFTER
 
@@ -137,6 +138,7 @@ class SignalView:
             color=style["color"],
             symbol=(signal.symbol or MISSING).upper(),
             market=signal.market or MISSING,
+            currency=signal.currency or "",
             confidence=f"{signal.confidence:.0f}%",
             entry=format_price(signal.entry),
             stop_loss=format_price(signal.stop_loss),

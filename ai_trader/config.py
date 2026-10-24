@@ -25,18 +25,24 @@ DEFAULTS: dict = {
         "min_flip_hold_seconds": 60,
     },
     "providers": {
-        "chain": ["ollama", "lmstudio", "openrouter", "anthropic", "noop"],
+        "chain": ["polystrata"],
         "cooldown_seconds": 30,
+        "ollama_base_url": "http://127.0.0.1:11434",
+        "lmstudio_base_url": "http://127.0.0.1:1234/v1",
+        "lmstudio_api_key": "",
+        "polystrata_base_url": "http://127.0.0.1:8080/v1",
+        "polystrata_api_key": "",
         "budget": {"calls_per_minute": 6, "min_interval_seconds": 8},
         "models": {
             "openrouter": "google/gemma-4-31b-it:free",
             "anthropic": "claude-sonnet-5",
             "ollama": "qwen2.5-vl:7b",
             "lmstudio": "local-model",
+            "polystrata": "strata",
         },
     },
     "signal": {
-        "market": "NSE",
+        "market": "AUTO",
         "symbol_hint": "",
         "high_confidence_threshold": 80,
         "market_notes": {
@@ -49,8 +55,16 @@ DEFAULTS: dict = {
                 "Do not assume F&O lot sizes on a cash-market chart."
             ),
             "US": (
-                "US equities. Currency USD ($). Typical hours 09:30-16:00 ET; "
-                "be mindful of extended-hours session context."
+                "US-listed equities. Currency USD ($). Regular session is generally 09:30-16:00 America/New_York, "
+                "but the captured chart may show pre-market or after-hours. Confirm the exchange and session "
+                "from visible chart data; never mix regular and extended sessions silently."
+            ),
+            "AUTO": (
+                "The chart may be an Indian cash equity (NSE/BSE, INR) or a US-listed equity (USD). "
+                "Infer market only from a visible exchange/symbol label. NSE/BSE regular cash session is "
+                "typically 09:15-15:30 Asia/Kolkata; US regular session is typically 09:30-16:00 America/New_York. "
+                "If exchange, symbol, currency or session cannot be identified reliably, return watch and say why. "
+                "Do not assume US pre-market/after-hours or Indian derivatives."
             ),
             "Crypto": (
                 "Cryptocurrency trades 24/7 - ignore session-hours reasoning. "
@@ -58,7 +72,13 @@ DEFAULTS: dict = {
             ),
         },
     },
-    "risk": {"account_size": 0.0, "risk_per_trade_pct": 1.0},
+    "risk": {
+        "account_size": 0.0,  # legacy single-currency setting; interpreted using account_currency
+        "account_currency": "USD",
+        "account_size_inr": 0.0,
+        "account_size_usd": 0.0,
+        "risk_per_trade_pct": 0.5,
+    },
     "logging": {
         "hotkey": "f9",
         "excel_path": "Trade_Log_Tracker.xlsx",
@@ -77,6 +97,19 @@ _ENV_OVERRIDES = {
     "AI_TRADER_EXCEL_PATH": ("logging", "excel_path"),
     "AI_TRADER_HIGH_CONFIDENCE": ("signal", "high_confidence_threshold"),
     "AI_TRADER_ACCOUNT_SIZE": ("risk", "account_size"),
+    "AI_TRADER_ACCOUNT_SIZE_INR": ("risk", "account_size_inr"),
+    "AI_TRADER_ACCOUNT_SIZE_USD": ("risk", "account_size_usd"),
+    "AI_TRADER_ACCOUNT_CURRENCY": ("risk", "account_currency"),
+    "AI_TRADER_OLLAMA_BASE_URL": ("providers", "ollama_base_url"),
+    "AI_TRADER_LMSTUDIO_BASE_URL": ("providers", "lmstudio_base_url"),
+    "AI_TRADER_LMSTUDIO_API_KEY": ("providers", "lmstudio_api_key"),
+    "AI_TRADER_POLYSTRATA_BASE_URL": ("providers", "polystrata_base_url"),
+    "AI_TRADER_POLYSTRATA_API_KEY": ("providers", "polystrata_api_key"),
+    "AI_TRADER_OLLAMA_BASE_URL": ("providers", "ollama_base_url"),
+    "AI_TRADER_LMSTUDIO_BASE_URL": ("providers", "lmstudio_base_url"),
+    "AI_TRADER_LMSTUDIO_API_KEY": ("providers", "lmstudio_api_key"),
+    "AI_TRADER_POLYSTRATA_BASE_URL": ("providers", "polystrata_base_url"),
+    "AI_TRADER_POLYSTRATA_API_KEY": ("providers", "polystrata_api_key"),
     "AI_TRADER_RISK_PCT": ("risk", "risk_per_trade_pct"),
 }
 
@@ -105,17 +138,26 @@ class Config:
     min_flip_hold_seconds: float
     provider_chain: list[str]
     cooldown_seconds: float
+    ollama_base_url: str
+    lmstudio_base_url: str
+    lmstudio_api_key: str
     calls_per_minute: int
     min_interval_seconds: float
     model_openrouter: str
     model_anthropic: str
     model_ollama: str
     model_lmstudio: str
+    model_polystrata: str
+    polystrata_base_url: str
+    polystrata_api_key: str
     market: str
     symbol_hint: str
     market_notes: dict[str, str]
     high_confidence_threshold: float
     account_size: float
+    account_currency: str
+    account_size_inr: float
+    account_size_usd: float
     risk_per_trade_pct: float
     log_hotkey: str
     excel_path: str
@@ -143,7 +185,8 @@ def _apply_env_overrides(data: dict) -> dict:
         elif key == "full_screen":
             data[section][key] = value.strip().lower() in ("1", "true", "yes", "on")
         elif key in ("interval_seconds", "min_flip_hold_seconds", "cooldown_seconds",
-                     "account_size", "risk_per_trade_pct", "high_confidence_threshold"):
+                     "account_size", "account_size_inr", "account_size_usd",
+                     "risk_per_trade_pct", "high_confidence_threshold"):
             data[section][key] = float(value)
         else:
             data[section][key] = value
@@ -188,18 +231,27 @@ def load_config(path: str | Path | None = None) -> Config:
         min_flip_hold_seconds=float(data["polling"]["min_flip_hold_seconds"]),
         provider_chain=list(data["providers"]["chain"]),
         cooldown_seconds=float(data["providers"]["cooldown_seconds"]),
+        ollama_base_url=str(data["providers"].get("ollama_base_url", "http://127.0.0.1:11434")),
+        lmstudio_base_url=str(data["providers"].get("lmstudio_base_url", "http://127.0.0.1:1234/v1")),
+        lmstudio_api_key=str(data["providers"].get("lmstudio_api_key", "")),
         calls_per_minute=int(budget["calls_per_minute"]),
         min_interval_seconds=float(budget["min_interval_seconds"]),
         model_openrouter=str(models["openrouter"]),
         model_anthropic=str(models["anthropic"]),
         model_ollama=str(models["ollama"]),
         model_lmstudio=str(models.get("lmstudio", "local-model")),
-        market=str(data["signal"]["market"]),
+        model_polystrata=str(os.getenv("AI_TRADER_POLYSTRATA_MODEL") or os.getenv("POLYSTRATA_MODEL") or os.getenv("AI_TRADER_STRATA_MODEL") or os.getenv("STRATA_MODEL") or models.get("polystrata", "strata")),
+        polystrata_base_url=str(data["providers"].get("polystrata_base_url", "http://127.0.0.1:8080/v1")),
+        polystrata_api_key=str(data["providers"].get("polystrata_api_key", "")),
+        market=str(data["signal"]["market"]).strip().upper(),
         symbol_hint=str(data["signal"]["symbol_hint"]),
         market_notes=dict(data["signal"].get("market_notes", {})),
         high_confidence_threshold=float(data["signal"].get("high_confidence_threshold", 80)),
         account_size=float(data["risk"].get("account_size", 0.0)),
-        risk_per_trade_pct=float(data["risk"].get("risk_per_trade_pct", 1.0)),
+        account_currency=str(data["risk"].get("account_currency", "USD")).upper(),
+        account_size_inr=float(data["risk"].get("account_size_inr", 0.0)),
+        account_size_usd=float(data["risk"].get("account_size_usd", 0.0)),
+        risk_per_trade_pct=float(data["risk"].get("risk_per_trade_pct", 0.5)),
         log_hotkey=str(data["logging"]["hotkey"]),
         excel_path=str(data["logging"]["excel_path"]),
     )
@@ -208,3 +260,26 @@ def load_config(path: str | Path | None = None) -> Config:
 def with_region(cfg: Config, left: int, top: int, width: int, height: int) -> Config:
     """Return a copy of ``cfg`` with a new capture region (immutable pattern)."""
     return replace(cfg, region=Region(left=left, top=top, width=width, height=height))
+
+
+def account_size_for_market(cfg: Config, market: str) -> float:
+    """Return capital expressed in the instrument's quote currency.
+
+    New configurations should set separate INR and USD balances. The legacy
+    single account_size value is only used when its declared account_currency
+    matches the detected instrument currency; no FX conversion is guessed.
+    """
+    normalized_market = str(market or "").strip().upper()
+    if normalized_market in {"NSE", "BSE"}:
+        if cfg.account_size_inr > 0:
+            return cfg.account_size_inr
+        if cfg.account_currency == "INR":
+            return cfg.account_size
+        return 0.0
+    if normalized_market == "US":
+        if cfg.account_size_usd > 0:
+            return cfg.account_size_usd
+        if cfg.account_currency == "USD":
+            return cfg.account_size
+        return 0.0
+    return 0.0

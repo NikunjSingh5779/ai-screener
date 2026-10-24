@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ai_trader.rate_guard import RateGuard
+from ai_trader.rate_guard import RateGuard, minimum_safe_poll_interval_seconds
 
 
 def test_budget_enforces_calls_per_minute() -> None:
@@ -55,3 +55,21 @@ def test_invalid_budget_raises() -> None:
 
     with pytest.raises(ValueError):
         RateGuard(calls_per_minute=0)
+
+
+
+def test_safe_poll_interval_honors_calls_per_minute_budget() -> None:
+    # Three calls/minute means a polling interval slightly above 20 seconds.
+    assert minimum_safe_poll_interval_seconds(5, 3, 8) == 20.25
+
+
+def test_safe_poll_interval_honors_minimum_gap_and_configured_interval() -> None:
+    assert minimum_safe_poll_interval_seconds(15, 6, 8) == 15
+    assert minimum_safe_poll_interval_seconds(5, 6, 8) == 10.25
+
+
+def test_safe_poll_interval_rejects_zero_budget() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="calls_per_minute"):
+        minimum_safe_poll_interval_seconds(10, 0, 8)

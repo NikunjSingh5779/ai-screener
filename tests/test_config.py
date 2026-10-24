@@ -20,6 +20,14 @@ def _no_config_toml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         "AI_TRADER_PROVIDERS", "AI_TRADER_COOLDOWN", "AI_TRADER_FLIP_HOLD",
         "AI_TRADER_FULL_SCREEN", "AI_TRADER_LOG_HOTKEY", "AI_TRADER_EXCEL_PATH",
         "AI_TRADER_REGION", "AI_TRADER_OPENROUTER_MODEL", "AI_TRADER_OLLAMA_MODEL",
+        "AI_TRADER_ACCOUNT_SIZE_INR", "AI_TRADER_ACCOUNT_SIZE_USD",
+        "AI_TRADER_ACCOUNT_CURRENCY",
+        "AI_TRADER_POLYSTRATA_MODEL",
+        "AI_TRADER_POLYSTRATA_BASE_URL",
+        "AI_TRADER_POLYSTRATA_API_KEY",
+        "AI_TRADER_OLLAMA_BASE_URL",
+        "AI_TRADER_LMSTUDIO_BASE_URL",
+        "AI_TRADER_LMSTUDIO_API_KEY",
     ):
         monkeypatch.delenv(env_name, raising=False)
 
@@ -36,7 +44,7 @@ def test_deep_merge_returns_independent_copy() -> None:
     # The nested capture region is untouched by any mutation during load.
     assert DEFAULTS["capture"]["region"] == {"left": 0, "top": 0, "width": 1280, "height": 720}
     assert DEFAULTS["polling"]["interval_seconds"] == 10
-    assert DEFAULTS["providers"]["chain"] == ["ollama", "lmstudio", "openrouter", "anthropic", "noop"]
+    assert DEFAULTS["providers"]["chain"] == ["polystrata"]
 
 
 def test_env_override_does_not_leak_between_loads(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,3 +81,56 @@ def test_env_risk_and_confidence_overrides(monkeypatch: pytest.MonkeyPatch) -> N
     assert cfg.risk_per_trade_pct == 2.5
     assert cfg.high_confidence_threshold == 85.0
 
+
+
+def test_auto_market_and_quote_currency_balances(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ai_trader.config import account_size_for_market
+
+    cfg = load_config()
+    assert cfg.market == "AUTO"
+    assert account_size_for_market(cfg, "NSE") == 0.0
+    assert account_size_for_market(cfg, "US") == 0.0
+
+    cfg.account_size_inr = 150000.0
+    cfg.account_size_usd = 2500.0
+    assert account_size_for_market(cfg, "NSE") == 150000.0
+    assert account_size_for_market(cfg, "BSE") == 150000.0
+    assert account_size_for_market(cfg, "US") == 2500.0
+
+
+def test_legacy_account_size_is_currency_gated() -> None:
+    from ai_trader.config import account_size_for_market
+
+    cfg = load_config()
+    cfg.account_size = 100000.0
+    cfg.account_currency = "INR"
+    assert account_size_for_market(cfg, "NSE") == 100000.0
+    assert account_size_for_market(cfg, "US") == 0.0
+    cfg.account_currency = "USD"
+    assert account_size_for_market(cfg, "US") == 100000.0
+    assert account_size_for_market(cfg, "NSE") == 0.0
+
+
+def test_env_per_market_balances(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_SIZE_INR", "150000")
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_SIZE_USD", "2500")
+    monkeypatch.setenv("AI_TRADER_ACCOUNT_CURRENCY", "USD")
+    cfg = load_config()
+    assert cfg.account_size_inr == 150000.0
+    assert cfg.account_size_usd == 2500.0
+    assert cfg.account_currency == "USD"
+
+
+def test_polystrata_settings_load_from_config_and_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = load_config()
+    assert cfg.model_polystrata == "strata"
+    assert cfg.polystrata_base_url == "http://127.0.0.1:8080/v1"
+    assert cfg.polystrata_api_key == ""
+
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_MODEL", "qwen3.6-custom")
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_BASE_URL", "http://127.0.0.1:8081/v1")
+    monkeypatch.setenv("AI_TRADER_POLYSTRATA_API_KEY", "test-key")
+    cfg = load_config()
+    assert cfg.model_polystrata == "qwen3.6-custom"
+    assert cfg.polystrata_base_url == "http://127.0.0.1:8081/v1"
+    assert cfg.polystrata_api_key == "test-key"
