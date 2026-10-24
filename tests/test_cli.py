@@ -150,6 +150,14 @@ def test_watch_loop_respects_max_iterations(monkeypatch) -> None:
     assert len(results) == 2
 
 
+def _provide_verified_freshness_for_test(monkeypatch) -> None:
+    """Simulate timestamp metadata only in tests of downstream accepted-signal paths."""
+    monkeypatch.setattr(
+        "ai_trader.cli._market_data_freshness",
+        lambda cfg, signal: (5.0, True),
+    )
+
+
 class _DictStyleCapture:
     """Response whose text uses the JSON dict-style the engine parses."""
 
@@ -162,6 +170,7 @@ class _DictStyleCapture:
 
 def test_do_read_emits_risk_sized_quantity(monkeypatch, capsys) -> None:
     """Task 2 accept: a directional signal past guard_flip gets risk-sized quantity."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -204,6 +213,7 @@ def test_do_read_emits_risk_sized_quantity(monkeypatch, capsys) -> None:
 def test_do_read_zero_account_keeps_quantity_none(monkeypatch, capsys) -> None:
     """Task 2 accept: unset/zero risk.account_size keeps quantity None and the
     CLI display path does not crash."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -235,6 +245,7 @@ def test_do_read_zero_account_keeps_quantity_none(monkeypatch, capsys) -> None:
 def test_do_read_high_confidence_triggers_alert(monkeypatch) -> None:
     """Task 3 accept: a high-confidence directional signal past guard_flip
     raises the alert (the shared ``_emit_signal`` path)."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -275,6 +286,7 @@ def test_do_read_forwards_configured_threshold_to_alert(monkeypatch) -> None:
     """Task 3 accept: the CLI forwards the configured high-confidence threshold
     to ``alert()`` for every accepted signal; the at/above filtering itself is
     unit-tested in test_alerts.py."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -313,6 +325,7 @@ def test_do_read_forwards_configured_threshold_to_alert(monkeypatch) -> None:
 
 def test_do_read_suppressed_flip_never_alerts(monkeypatch) -> None:
     """Task 3 accept: a flip suppressed by guard_flip must not raise an alert."""
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),
@@ -432,7 +445,8 @@ def test_main_invalid_region_returns_error(capsys) -> None:
 
 
 
-def test_auto_mode_accepts_explicitly_identified_us_equity(monkeypatch) -> None:
+def test_auto_mode_accepts_explicitly_identified_us_equity_when_freshness_is_verified(monkeypatch) -> None:
+    _provide_verified_freshness_for_test(monkeypatch)
     monkeypatch.setattr(
         "ai_trader.cli.grab_screen",
         lambda cfg: Image.new("RGB", (32, 32), "black"),

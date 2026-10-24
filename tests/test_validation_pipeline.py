@@ -114,3 +114,48 @@ def test_read_pipeline_downgrades_configured_symbol_mismatch(monkeypatch) -> Non
     assert signal.stop_loss is None
     assert signal.target is None
     assert "conflicts with configured symbol hint NVDA" in signal.reasoning
+
+
+
+def test_valid_directional_signal_fails_closed_when_freshness_is_unknown(monkeypatch) -> None:
+    result = _read(monkeypatch, _payload())
+
+    assert result.ctx is not None
+    signal = result.ctx.signal
+    assert signal.action == "watch"
+    assert signal.entry is None
+    assert signal.stop_loss is None
+    assert signal.target is None
+    assert signal.position_size_pct is None
+    assert signal.quantity is None
+    assert "market-data freshness is explicitly unverified" in signal.reasoning
+
+
+def test_valid_directional_signal_can_pass_with_verified_freshness_metadata(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli._market_data_freshness",
+        lambda cfg, signal: (5.0, True),
+    )
+    result = _read(monkeypatch, _payload())
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "buy"
+    assert result.ctx.signal.entry == 100.0
+    assert result.ctx.signal.stop_loss == 98.0
+    assert result.ctx.signal.target == 104.0
+
+
+def test_stale_timestamp_metadata_downgrades_directional_signal(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "ai_trader.cli._market_data_freshness",
+        lambda cfg, signal: (61.0, True),
+    )
+    result = _read(monkeypatch, _payload())
+
+    assert result.ctx is not None
+    signal = result.ctx.signal
+    assert signal.action == "watch"
+    assert signal.entry is None
+    assert signal.stop_loss is None
+    assert signal.target is None
+    assert "market data is stale (61s > 60s)" in signal.reasoning

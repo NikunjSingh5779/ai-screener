@@ -103,6 +103,17 @@ class ReadResult:
         )
 
 
+def _market_data_freshness(cfg, signal) -> tuple[float | None, bool | None]:
+    """Return trusted age/verification metadata for the signal's latest candle.
+
+    The current screenshot-only provider has no candle timestamp, so freshness
+    is explicitly unverified and directional suggestions fail closed. Do not use
+    screenshot capture time as a substitute. Implement this adapter only when a
+    trusted market-data source supplies timestamp-derived evidence.
+    """
+    return None, False
+
+
 def read_signal(
     cfg,
     client,
@@ -172,10 +183,9 @@ def read_signal(
             target=signal.target,
             expected_market=expected_market,
             symbol_hint=str(getattr(cfg, "symbol_hint", "") or ""),
-            # Capture time is not evidence that the chart's latest candle is fresh.
-            # This screenshot-only interface currently has no reliable candle timestamp.
-            data_age_seconds=None,
-            freshness_verified=None,
+            # The screenshot-only pipeline has no trusted candle timestamp today.
+            # Fail closed until a market-data adapter supplies timestamp-derived evidence.
+            data_age_seconds, freshness_verified = _market_data_freshness(cfg, signal),
         )
         downgrade_unsafe_signal(signal, safety_errors)
         elapsed = time.monotonic() - started

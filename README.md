@@ -151,6 +151,8 @@ the suggestion to WATCH and clear actionable levels. Model/Mica classifications 
 advisory only and cannot override these checks.
 
 The screenshot-only provider interface does not expose the latest market candle's
-timestamp. Capture time is not market-data freshness evidence. The validation module
-can block explicit stale or unverified timestamp evidence, but end-to-end stale-data
-detection still requires a trustworthy candle-timestamp source.
+timestamp. Capture time is not market-data freshness evidence. Therefore, BUY/SELL
+suggestions are downgraded to WATCH until a trusted market-data adapter supplies
+timestamp-derived freshness evidence. HOLD/WATCH responses remain available. Do not
+bypass this guard just to obtain directional suggestions; connect a reliable timestamp
+source and validate its latency and clock semantics first.
