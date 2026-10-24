@@ -80,7 +80,8 @@ def test_read_pipeline_downgrades_low_reward_risk(
     assert signal.target is None
     assert signal.position_size_pct is None
     assert signal.quantity is None
-    assert "reward/risk is below the minimum 1.5:1" in signal.reasoning
+    assert "[INADEQUATE REWARD/RISK — downgraded" in signal.reasoning
+    assert "potential reward/risk 0.50:1" in signal.reasoning
 
 
 def test_read_pipeline_downgrades_missing_risk_level(monkeypatch) -> None:
