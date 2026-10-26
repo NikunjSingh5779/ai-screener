@@ -386,6 +386,8 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "not a probability of profit" in prompt
     assert "short intraday trades only" in prompt
     assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
+    assert "outlook_direction" in prompt
+    assert "WATCH can coexist with a bullish/bearish outlook" in prompt
 
 
 def test_prompt_explicitly_rejects_crypto_pairs() -> None:
@@ -450,3 +452,28 @@ def test_parse_does_not_invent_currency_for_unknown_market() -> None:
     )
     assert signal.market == "LSE"
     assert signal.currency is None
+
+
+def test_parse_preserves_outlook_independently_of_watch_action() -> None:
+    signal = SignalEngine.parse(json.dumps({
+        "action": "watch",
+        "confidence": 45,
+        "outlook_direction": "downtrend",
+        "outlook_horizon": "next 3-5 candles",
+        "outlook_evidence": "68%",
+        "outlook_reasoning": "Lower highs and support break favor bearish continuation, but a bounce remains possible.",
+    }))
+    assert signal.action == "watch"
+    assert signal.outlook_direction == "bearish"
+    assert signal.outlook_horizon == "next 3-5 candles"
+    assert signal.outlook_evidence == 68.0
+    assert "support break" in signal.outlook_reasoning
+
+
+def test_missing_or_invalid_outlook_defaults_to_unclear() -> None:
+    signal = SignalEngine.parse(
+        '{"action":"watch","confidence":40,"outlook_direction":"highly bullish maybe"}'
+    )
+    assert signal.outlook_direction == "unclear"
+    assert signal.outlook_evidence == 0.0
+    assert signal.outlook_horizon == ""
