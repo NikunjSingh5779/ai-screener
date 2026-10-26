@@ -1,6 +1,6 @@
 # AI Trader — Local-First Floating Trading Copilot
 
-AI Trader is a **screen-reading, advisory-only** desktop copilot for **Indian (NSE/BSE) and US-listed equities**. It captures a selected TradingView chart region, asks a local vision model for a structured interpretation, normalizes the detected market and quote currency, displays the result in an always-on-top panel, and can track manually confirmed fills. It **does not place orders**. Market auto-detection depends on a readable ticker/exchange label; unclear or unsupported markets are downgraded to WATCH.
+AI Trader is a **screen-reading, advisory-only** desktop copilot for **non-scalping intraday long/short setups** on Indian (NSE/BSE) and US-listed equities. It captures a selected TradingView chart region, asks a local vision model for a structured interpretation, applies deterministic timeframe and risk checks, displays the result in an always-on-top panel, and can track manually confirmed fills. It **does not place orders or automatically close positions**. Market auto-detection depends on a readable ticker/exchange label; unclear or unsupported markets are downgraded to WATCH.
 
 ## Quick start (Windows PowerShell)
 
@@ -13,7 +13,22 @@ Copy-Item config.example.toml config.toml
 python -m pytest -q
 ```
 
-With no command-line arguments, the app opens the floating overlay and starts monitoring automatically. Right-click the overlay to pause/resume monitoring, read once, log, or quit. Set `[capture].region` in `config.toml` to the chart's pixel coordinates and keep the overlay outside that region; otherwise, the overlay's changing text can make the captured image appear changed. Start with a small chart-only region and verify it before leaving monitoring enabled. The displayed polling interval is automatically raised when needed to respect both the local provider's minimum request gap and its configured calls-per-minute budget; changing chart pixels can still trigger a new analysis at each eligible poll.
+With no command-line arguments, the app opens the floating overlay and starts monitoring automatically. Right-click the overlay to pause/resume monitoring, read once, log, or quit. Set `[capture].region` in `config.toml` to the chart's pixel coordinates and keep the overlay outside that region; otherwise, the overlay's changing text can make the captured image appear changed. Start with a small chart-only region and verify it before leaving monitoring enabled. The displayed polling interval is automatically raised when needed to respect the local provider's minimum request gap and calls-per-minute budget. The non-scalping defaults poll every 60 seconds; changing chart pixels can still trigger a new analysis at each eligible poll.
+
+
+## Non-scalping intraday strategy
+
+- **Use a 15-minute TradingView chart as the default decision timeframe.** A readable 30-minute or 1-hour chart is also eligible when there is enough regular-session time left. The app deterministically converts BUY/SELL proposals from 1m, 3m, 5m, unknown or non-intraday timeframes to WATCH and clears their levels.
+- The model looks for a clear trend pullback or confirmed breakout/retest, not a one-candle scalp. The target should leave at least **1.5:1 potential reward-to-risk** after the stop distance. Invalid levels, insufficient reward-to-risk, or unverified chart freshness still mean WATCH.
+- Polling defaults to every **60 seconds**, with a **5-minute opposite-direction flip guard**. Those settings reduce redundant analysis and short-term signal flips; they do not guarantee that a valid setup appears within any particular time.
+- Set these values under [polling] in your existing config.toml as well; existing config files override defaults:
+  ```toml
+  [polling]
+  interval_seconds = 60
+  min_flip_hold_seconds = 300
+  ```
+- Use a chart-only capture region, keep ticker/exchange/timeframe visible, and keep the overlay outside the captured region. The model only sees the captured screenshot; this app does not pull trusted live candle data or know the open positions shown in TradingView.
+- **No-trade hours are valid.** Do not weaken freshness, level-ordering or reward/risk checks just to get more signals. Close any position manually before the regular session ends; the app never places orders or guarantees an exit.
 
 ## Indian + US equity support
 
@@ -150,6 +165,6 @@ incorrect BUY/SELL ordering, and reward/risk below 1.5:1. Failed checks downgrad
 the suggestion to WATCH and clear actionable levels. Model/Mica classifications are
 advisory only and cannot override these checks.
 
-The overlay also displays a separate **qualitative short-horizon outlook** (`bullish`, `bearish`, `sideways`, or `unclear`) for the next 3–5 candles when chart evidence is legible and visibly marked live. This outlook is independent of the trade action: for example, `WATCH` can accompany a bearish outlook when the setup is not a safe entry. The evidence score is not a calibrated probability, and the outlook is not a guaranteed price prediction. Use successive monitoring reads to observe how the view changes, but validate forecasting quality against recorded outcomes before relying on it.
+The overlay also displays a separate **qualitative short-horizon outlook** (`bullish`, `bearish`, `sideways`, or `unclear`) for the next 4–8 candles on a 15-minute chart (or an equivalent same-session horizon) when chart evidence is legible and visibly marked live. This outlook is independent of the trade action: for example, `WATCH` can accompany a bearish outlook when the setup is not a safe entry. The evidence score is not a calibrated probability, and the outlook is not a guaranteed price prediction. Use successive monitoring reads to observe how the view changes, but validate forecasting quality against recorded outcomes before relying on it.
 
 This project does **not** call an external market-data API. The local vision model must report explicit visible `chart_status="live"`, `timestamp_visible=true`, and a readable `latest_candle_time` before a BUY/SELL suggestion can pass the freshness gate. Delayed, unknown, or unreadable chart freshness becomes WATCH with actionable levels cleared. This is a **visual assessment, not independent proof of live market data**: a frozen browser, delayed exchange feed, replay, or misleading chart indicator can still fool the model. Keep verifying the ticker, timeframe, current price, and candle status yourself. The app remains advisory-only and never places orders.

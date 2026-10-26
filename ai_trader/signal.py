@@ -22,7 +22,7 @@ VALID_ACTIONS = {"buy", "sell", "hold", "watch"}
 MIN_REWARD_RISK_RATIO = 1.5
 
 DEFAULT_PROMPT_TEMPLATE = """\
-You analyze chart screenshots for cautious, short intraday trades only. Return one valid JSON object, no prose or markdown:
+You are an equity chart screener for cautious, NON-SCALPING intraday long/short trades. Prefer setups expected to develop over roughly 1-3 hours; do not scalp short bursts or chase individual candles. Never force a trade. Return one valid JSON object, no prose or markdown:
 {{
   "action": "buy" | "sell" | "hold" | "watch",
   "confidence": 0-100,
@@ -30,39 +30,52 @@ You analyze chart screenshots for cautious, short intraday trades only. Return o
   "stop_loss": number or null,
   "target": number or null,
   "position_size_pct": number or null,
-  "timeframe": "visible timeframe or empty",
-  "reasoning": "one short sentence",
+  "timeframe": "visible timeframe including unit, e.g. 15m, 30m, 1h",
+  "reasoning": "one short sentence explaining the trade or why no entry qualifies",
   "market": "NSE" | "BSE" | "US" | "",
   "symbol": "visible ticker or empty",
   "chart_status": "live" | "delayed" | "unknown",
   "timestamp_visible": true | false,
   "latest_candle_time": "visible timestamp or empty",
   "outlook_direction": "bullish" | "bearish" | "sideways" | "unclear",
-  "outlook_horizon": "next 3-5 candles on visible timeframe or empty",
+  "outlook_horizon": "next 4-8 15m candles or equivalent same-session horizon, or empty",
   "outlook_evidence": 0-100,
   "outlook_reasoning": "one concise sentence with evidence and uncertainty"
 }}
 Chart-reading procedure (inspect the full captured chart before deciding):
-1. Identify the visible ticker/exchange, timeframe, latest price label, price scale and time axis. Report only what can actually be read. Set timestamp_visible=true only when a readable timestamp for the latest candle is actually visible; copy it to latest_candle_time. Set chart_status="live" only if the screenshot visibly shows an explicit real-time/live indicator and a readable latest-candle timestamp; use "delayed" for an explicit delay marker, otherwise "unknown". Never infer live status from screenshot capture time.
-2. Examine recent candles and visible swing highs/lows. Describe the current structure as trend, range/chop, breakout, retest, rejection or reversal only when the candles support it.
-3. Check visible support/resistance, trend lines, volume and indicators. Use an indicator only when it is visibly present and legible; never assume an indicator exists or invent its value. Prefer agreement between price action and the indicators that are actually shown.
-4. Judge whether the latest move has follow-through or is still forming. Do not claim a candle has closed or a breakout is confirmed unless the screenshot supports that conclusion.
-5. Locate a plausible entry, invalidation/stop and target using readable prices and visible structure. Do not fabricate exact levels from pixel position when the price scale is unreadable. Leave levels null if reliable prices cannot be established.
-6. Check whether price is too extended, choppy, near an opposing level, or has insufficient room to the target. Require at least 1.5:1 potential reward/risk after accounting for the stop distance.
-7. Separately forecast the qualitative direction for the next 3-5 candles on the visible timeframe. This is an outlook, not an entry instruction or guaranteed price prediction. Fill outlook_direction, outlook_horizon, outlook_evidence, and outlook_reasoning even when action is "watch" if the current chart provides enough evidence. Use "unclear" and evidence 0 when the screenshot is unreadable, chart status is delayed/unknown, the timestamp is not legible, or signals conflict. Do not invent a future price.
+1. Identify the visible ticker/exchange, chart timeframe, latest price label, price scale and time axis. Report only what can actually be read. Set timestamp_visible=true only when a readable timestamp for the latest candle is actually visible; copy it to latest_candle_time. Set chart_status="live" only if an explicit real-time/live indicator and a readable latest-candle timestamp are visibly present; use "delayed" for an explicit delay marker, otherwise "unknown". Never infer live status from screenshot capture time.
+2. This is not a scalping strategy. Use a clearly visible 15m chart as the preferred decision timeframe; a 30m or 1h chart is acceptable only when the regular session and sufficient time to exit before close are clear. A 1m, 3m, or 5m chart is too fast for this strategy and must produce "watch" with null trade levels. Daily, weekly, unknown, or unreadable timeframes must also produce "watch".
+3. Examine the broader visible sequence of candles and swing highs/lows. Identify trend, higher highs/lows, lower highs/lows, range, breakout/retest, rejection or reversal only when supported by visible evidence. Prefer a pullback in the prevailing trend or a confirmed breakout/retest; avoid chasing an extended candle or trading a choppy range.
+4. Check only visible and legible support/resistance, trend lines, volume and indicators. Prefer confluence between price structure and indicators that are actually shown. Never assume an indicator exists or invent its value.
+5. Use a completed candle for confirmation when the screenshot makes candle state clear. Do not claim a candle has closed or a breakout is confirmed unless the screenshot supports that conclusion.
+6. Propose entry, invalidation/stop and target only at readable prices and visible structure. Do not fabricate levels from pixel position when the price scale is unreadable. Leave levels null if reliable prices cannot be established.
+7. Require correct directional ordering: for BUY, target > entry > stop_loss; for SELL, target < entry < stop_loss. Require at least 1.5:1 potential reward/risk after accounting for stop distance. Reject late entries, nearby opposing support/resistance, ill-defined stops, and setups whose target lacks sufficient room.
+8. Separately forecast the qualitative direction for the next 4-8 candles on a 15m chart (roughly 1-2 hours), or an equivalent same-session horizon on a readable 30m/1h chart. This is an outlook, not an entry instruction or guaranteed price prediction. Fill outlook fields when evidence is legible. Use "unclear" and evidence 0 when chart status is delayed/unknown, the latest timestamp is not legible, or signals conflict. Do not invent a future price.
 Decision rules:
 - If the screenshot is not a trading chart, return "watch".
 - This screener supports listed equities only. If the visible instrument is a cryptocurrency pair (for example BTCUSD, BTCUSDT or ETHUSD) or a crypto exchange, return "watch" with null actionable levels.
 - Never invent a price, symbol, timeframe, exchange, indicator, volume reading, candle state or pattern.
-- If the ticker/exchange, timeframe, price scale, setup, or visual freshness evidence is unclear, return "watch" or "hold", with null actionable levels. For BUY/SELL, require chart_status="live", timestamp_visible=true, and a readable latest_candle_time. A screenshot alone cannot prove market-data freshness; report only visible evidence.
-- Intraday only: use a clearly visible 5m/15m or other intraday timeframe. For daily/weekly or unknown timeframe, return "watch".
-- Buy only with visible bullish setup evidence and target > entry > stop_loss. Sell only with visible bearish setup evidence and target < entry < stop_loss. Otherwise return "watch" and null levels.
-- Only suggest buy/sell when the visible target offers at least 1.5 times the entry-to-stop distance; otherwise return "watch" and null levels.
-- "confidence" measures visual legibility/setup strength for the trade action, not a probability of profit. Do not inflate it to force a trade.
-- "outlook_direction" is independent of "action": WATCH can coexist with a bullish/bearish outlook when no safe entry exists. "outlook_evidence" is a 0-100 qualitative evidence-strength score, not a calibrated probability or chance of profit.
-- Keep "reasoning" and "outlook_reasoning" to one concise sentence each. State the visible reason and main uncertainty; do not provide a long essay.
+- For a fresh BUY/SELL entry, all must be true: supported identifiable equity; visibly live chart with readable latest-candle timestamp; eligible 15m-1h timeframe; clear directional structure; complete readable entry/stop/target; correct ordering; at least 1.5:1 reward/risk; and enough regular-session time left to close before the session ends.
+- Do not use "hold" to mean "there is no entry". This app does not provide the model with synchronized TradingView open-position state. Use "watch" when no fresh entry qualifies; do not imply the app knows whether the user has an open position.
+- If any requirement fails, return "watch" and null entry, stop_loss, target, and position_size_pct. Give one concise, specific reason (for example, timeframe too short, unclear timestamp, trend conflict, invalid levels, or insufficient reward/risk). Do not relax requirements just to emit a trade.
+- "confidence" measures visual legibility and setup quality, not a probability of profit. Do not inflate it to force a trade.
+- "outlook_direction" is independent of "action": WATCH can accompany a bearish/bullish outlook when no safe entry exists. "outlook_evidence" is a qualitative evidence-strength score, not a calibrated probability or chance of profit.
+- Keep "reasoning" and "outlook_reasoning" concise. State visible evidence and the main uncertainty.
+- The strategy is intraday only; never recommend holding overnight. The app does not submit orders or automatically close positions, so the user must handle exits and confirm the relevant regular-session close.
 - Infer market only from a visible ticker/exchange label. NSE/BSE use INR; US equities use USD. If uncertain, leave market and symbol empty.
 Market hint: {market}. Symbol hint: {symbol_hint}. Market notes: {market_notes}"""
+
+
+def _timeframe_minutes(value: object) -> int | None:
+    """Parse explicit minute/hour chart labels; reject ambiguous or non-intraday labels."""
+    raw = str(value or "").strip().lower().replace(" ", "")
+    minute_match = re.fullmatch(r"(\d+)(?:m|min|mins|minute|minutes)", raw)
+    if minute_match:
+        return int(minute_match.group(1))
+    hour_match = re.fullmatch(r"(\d+)(?:h|hr|hrs|hour|hours)", raw)
+    if hour_match:
+        return int(hour_match.group(1)) * 60
+    return None
 
 
 def _coerce_price(v: object) -> object:
@@ -109,7 +122,7 @@ class TradingSignal(BaseModel):
     timestamp_visible: bool = Field(default=False, description="true only when latest candle timestamp is legible in the screenshot")
     latest_candle_time: str = Field(default="", description="latest candle timestamp transcribed from visible chart; empty if unreadable")
     outlook_direction: str = Field(default="unclear", description="qualitative outlook: bullish | bearish | sideways | unclear; not a trade action")
-    outlook_horizon: str = Field(default="", description="short horizon, e.g. next 3-5 candles on the visible timeframe")
+    outlook_horizon: str = Field(default="", description="next 4-8 candles on 15m chart or equivalent same-session horizon")
     outlook_evidence: float = Field(default=0.0, ge=0, le=100, description="0-100 chart-evidence strength; not a probability")
     outlook_reasoning: str = Field(default="", description="brief visual evidence and uncertainty for the outlook")
 
@@ -373,20 +386,49 @@ class SignalEngine:
 
 
 def _enforce_structure(signal: TradingSignal) -> TradingSignal:
-    """Apply deterministic sanity checks to directional model suggestions.
+    """Fail closed on scalping timeframes, incomplete levels, and invalid risk geometry.
 
-    BUY/SELL levels must have the correct order and at least
-    MIN_REWARD_RISK_RATIO potential reward for each unit of price risk.
-    Structurally invalid levels are downgraded to hold. Suggestions below
-    the reward/risk threshold are downgraded to watch and their actionable
-    levels are cleared; the original values and ratio remain in the reasoning.
-    This is a screening heuristic, not a profitability guarantee.
+    Directional entries require a clearly identified 15-60 minute chart, complete
+    price levels, correct BUY/SELL ordering, and at least 1.5:1 potential reward/risk.
+    This is a conservative screening heuristic, not a profitability guarantee.
     """
     action = signal.action
     if action not in ("buy", "sell"):
         return signal
+
     entry, stop, target = signal.entry, signal.stop_loss, signal.target
+    timeframe_minutes = _timeframe_minutes(signal.timeframe)
+    if timeframe_minutes is None or not 15 <= timeframe_minutes <= 60:
+        original_levels = f"entry={entry}, stop_loss={stop}, target={target}"
+        marker = f"[NON-SCALPING TIMEFRAME — downgraded from {action}]"
+        timeframe_label = str(signal.timeframe or "unknown").strip()
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
+        signal.reasoning = (
+            f"{marker} chart timeframe {timeframe_label!r} is not eligible; "
+            "use a clearly visible 15m-1h chart. "
+            f"Original proposed levels: {original_levels}. {signal.reasoning}"
+        ).strip()
+        logger.warning(
+            "non-scalping timeframe guard downgraded %s to watch; levels cleared: timeframe=%r",
+            action, signal.timeframe,
+        )
+        return signal
+
     if entry is None or stop is None or target is None:
+        marker = f"[INCOMPLETE SETUP — downgraded from {action}]"
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
+        signal.reasoning = (
+            f"{marker} a fresh entry needs readable entry, stop-loss, and target levels. "
+            f"Original proposed levels: entry={entry}, stop_loss={stop}, target={target}. "
+            f"{signal.reasoning}"
+        ).strip()
+        logger.warning("incomplete %s signal downgraded to watch; actionable levels cleared", action)
         return signal
 
     valid = (target > entry > stop) if action == "buy" else (target < entry < stop)
@@ -396,10 +438,13 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
             f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
             f"({marker})"
         )
-        signal.action = "hold"
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
         signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
         logger.warning(
-            "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
+            "structurally invalid %s signal downgraded to watch; levels cleared: entry=%s stop=%s target=%s",
             action, entry, stop, target,
         )
         return signal

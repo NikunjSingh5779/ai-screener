@@ -459,7 +459,7 @@ def test_auto_mode_accepts_explicitly_identified_us_equity_when_freshness_is_ver
         "entry": 376.0,
         "stop_loss": 370.0,
         "target": 388.0,
-        "timeframe": "5m",
+        "timeframe": "15m",
         "reasoning": "Illustrative confirmed breakout",
         "market": "NASDAQ",
         "symbol": "NASDAQ:TSLA",
@@ -559,3 +559,98 @@ def test_unknown_market_is_no_trade_watch_not_directional(monkeypatch) -> None:
     assert result.ctx.signal.entry is None
     assert result.ctx.signal.currency is None
     assert "NO TRADE" in result.ctx.signal.reasoning
+
+
+def test_hold_with_unverified_chart_freshness_suppresses_levels(monkeypatch) -> None:
+    """A HOLD response with unknown freshness must not expose actionable price levels."""
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    signal = TradingSignal(
+        action="hold",
+        confidence=60.0,
+        entry=346.74,
+        stop_loss=348.04,
+        target=345.74,
+        position_size_pct=1.0,
+        quantity=0.99,
+        timeframe="5m",
+        reasoning="Existing short position is held, with a stop at 348.04.",
+        market="US",
+        symbol="AAPL",
+        chart_status="unknown",
+        timestamp_visible=False,
+        latest_candle_time="",
+    )
+    result = read_signal(cfg, _DictStyleCapture(json.dumps(signal.model_dump())), SignalEngine())
+
+    assert result.ctx is not None
+    safe = result.ctx.signal
+    assert safe.action == "watch"
+    assert safe.entry is safe.stop_loss is safe.target is None
+    assert safe.position_size_pct is safe.quantity is None
+    assert "no fresh entry recommendation" in safe.reasoning.lower()
+    assert "TradingView positions" in safe.reasoning
+
+
+def test_watch_response_cannot_keep_actionable_levels(monkeypatch) -> None:
+    """WATCH means no entry instruction, even if the model included price levels."""
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    cfg = load_config()
+    cfg.market = "AUTO"
+    signal = TradingSignal(
+        action="watch",
+        confidence=55.0,
+        entry=100.0,
+        stop_loss=99.0,
+        target=103.0,
+        position_size_pct=1.0,
+        quantity=2.0,
+        timeframe="5m",
+        reasoning="Wait for a breakout.",
+        market="US",
+        symbol="AAPL",
+    )
+    result = read_signal(cfg, _DictStyleCapture(json.dumps(signal.model_dump())), SignalEngine())
+
+    assert result.ctx is not None
+    safe = result.ctx.signal
+    assert safe.action == "watch"
+    assert safe.entry is safe.stop_loss is safe.target is None
+    assert safe.position_size_pct is safe.quantity is None
+    assert "WATCH is non-actionable" in safe.reasoning
+
+
+def test_five_minute_chart_cannot_emit_directional_signal(monkeypatch) -> None:
+    """A 5m chart is intentionally ineligible for the non-scalping strategy."""
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    _provide_verified_freshness_for_test(monkeypatch)
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response = {
+        "action": "buy",
+        "confidence": 95,
+        "entry": 100.0,
+        "stop_loss": 98.0,
+        "target": 105.0,
+        "position_size_pct": 1.0,
+        "timeframe": "5m",
+        "reasoning": "Strong breakout.",
+        "market": "NASDAQ",
+        "symbol": "NASDAQ:AAPL",
+    }
+    result = read_signal(cfg, _DictStyleCapture(json.dumps(response)), SignalEngine())
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is result.ctx.signal.stop_loss is result.ctx.signal.target is None
+    assert "NON-SCALPING TIMEFRAME" in result.ctx.signal.reasoning

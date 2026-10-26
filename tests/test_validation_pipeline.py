@@ -31,7 +31,7 @@ def _payload(**overrides) -> dict:
         "stop_loss": 98.0,
         "target": 104.0,
         "position_size_pct": 2.0,
-        "timeframe": "5m",
+        "timeframe": "15m",
         "reasoning": "Synthetic test setup.",
         "market": "NASDAQ",
         "symbol": "NVDA",
@@ -96,7 +96,7 @@ def test_read_pipeline_downgrades_missing_risk_level(monkeypatch) -> None:
     assert signal.entry is None
     assert signal.stop_loss is None
     assert signal.target is None
-    assert "must all be present" in signal.reasoning
+    assert "[INCOMPLETE SETUP" in signal.reasoning
 
 
 def test_read_pipeline_downgrades_configured_symbol_mismatch(monkeypatch) -> None:

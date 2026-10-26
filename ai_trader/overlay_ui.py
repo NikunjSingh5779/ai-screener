@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import sys
 import threading
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
@@ -222,7 +223,9 @@ class OverlayWindow(QWidget):
 
         trade_buttons = QHBoxLayout()
         self._entered_button = QPushButton("I entered")
-        self._entered_button.setToolTip("Record an entry you already executed yourself; this does not place an order.")
+        self._entered_button.setToolTip(
+            "Record a position you already entered manually. The app does not synchronize TradingView positions or place orders."
+        )
         self._entered_button.clicked.connect(self.record_manual_entry)
         self._entered_button.setEnabled(False)
         self._exit_button = QPushButton("Exit confirmed")
@@ -355,7 +358,7 @@ class OverlayWindow(QWidget):
             self._refresh_trade_controls()
 
     def _refresh_trade_controls(self) -> None:
-        """Show the persisted manual position and gate entry/exit controls."""
+        """Show the persisted manual position and gate tracking controls."""
         active = self._manual_tracker.active_trade
         if active is not None:
             self._trade_status.setText(
@@ -363,60 +366,132 @@ class OverlayWindow(QWidget):
                 f"{active['symbol']} @ {float(active['actual_entry']):g} {active.get('currency') or ''} · "
                 "recorded only; no order was placed"
             )
+            self._entered_button.setText("Position tracked")
+            self._entered_button.setToolTip("A local position is already tracked. Exit recording does not place orders.")
             self._entered_button.setEnabled(False)
             self._exit_button.setEnabled(True)
             return
 
-        self._trade_status.setText("No tracked position · manual tracking only; no orders are placed")
-        signal = self._ctx.signal if self._ctx is not None else None
-        usable = (
-            signal is not None
-            and signal.action in {"buy", "sell"}
-            and self._ctx.model != "noop/mock"
-            and signal.entry is not None
-            and signal.stop_loss is not None
-            and signal.target is not None
+        self._trade_status.setText(
+            "No local position tracked · TradingView positions are not synchronized; no orders are placed"
         )
-        self._entered_button.setEnabled(bool(usable))
+        signal = self._ctx.signal if self._ctx is not None else None
+        identified_real_signal = (
+            signal is not None
+            and self._ctx is not None
+            and self._ctx.model != "noop/mock"
+            and bool(str(signal.symbol or "").strip())
+            and str(signal.market or "").upper() in {"NSE", "BSE", "US"}
+            and signal.action in {"buy", "sell", "hold", "watch"}
+        )
+        actionable_recommendation = (
+            identified_real_signal
+            and signal.action in {"buy", "sell"}
+            and all(value is not None for value in (signal.entry, signal.stop_loss, signal.target))
+        )
+        if actionable_recommendation:
+            self._entered_button.setText("I entered")
+            self._entered_button.setToolTip(
+                "Record the actual fill for the displayed BUY/SELL recommendation; no order will be placed."
+            )
+            self._entered_button.setEnabled(True)
+        elif identified_real_signal:
+            self._entered_button.setText("Track open")
+            self._entered_button.setToolTip(
+                "Record an already-open position after confirming its side, actual fill and quantity. "
+                "TradingView positions are not synchronized and no orders will be placed."
+            )
+            self._entered_button.setEnabled(True)
+        else:
+            self._entered_button.setText("I entered")
+            self._entered_button.setToolTip(
+                "A real, identified equity signal is required before recording a position."
+            )
+            self._entered_button.setEnabled(False)
         self._exit_button.setEnabled(False)
 
     def record_manual_entry(self) -> None:
-        """Ask for the actual user fill and persist it; never places an order."""
+        """Record a user-confirmed fill or an already-open external position; never places an order."""
         if self._manual_tracker.active_trade is not None:
             self.show_error("A tracked position is already active. Record its exit first.")
             self._refresh_trade_controls()
             return
         if self._ctx is None:
-            self.show_error("Read a real chart signal before recording an entry.")
+            self.show_error("Read a real chart signal before recording a position.")
             return
         signal = self._ctx.signal
         if self._ctx.model == "noop/mock":
             self.show_error("TEST MODE output cannot be used to record a trade.")
             return
-        if signal.action not in {"buy", "sell"} or any(
-            value is None for value in (signal.entry, signal.stop_loss, signal.target)
-        ):
-            self.show_error("Only BUY/SELL signals with entry, stop-loss and target levels can be tracked.")
+        if not str(signal.symbol or "").strip() or str(signal.market or "").upper() not in {"NSE", "BSE", "US"}:
+            self.show_error("A clearly identified NSE, BSE or US equity is required to record a position.")
             return
-        if signal.action == "sell":
+
+        has_actionable_setup = (
+            signal.action in {"buy", "sell"}
+            and all(value is not None for value in (signal.entry, signal.stop_loss, signal.target))
+        )
+        tracking_ctx = self._ctx
+        recording_existing_position = not has_actionable_setup
+
+        if recording_existing_position:
+            answer = QMessageBox.question(
+                self,
+                "Track existing position",
+                "This app does not synchronize TradingView positions. Continue only if you already "
+                "opened this position yourself. This records it locally; it does not place or verify orders.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            side_choice, accepted = QInputDialog.getItem(
+                self,
+                "Track existing position",
+                "Select the side of the position already open:",
+                ["Long (BUY)", "Short (SELL)"],
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            tracking_side = "sell" if side_choice.startswith("Short") else "buy"
+            # Do not save unverified model-generated levels as levels for the
+            # user's already-open external position.
+            tracking_signal = signal.model_copy(
+                update={
+                    "action": tracking_side,
+                    "entry": None,
+                    "stop_loss": None,
+                    "target": None,
+                    "position_size_pct": None,
+                    "quantity": None,
+                    "reasoning": "Existing position recorded from user-confirmed external account; trade levels are not synchronized.",
+                }
+            )
+            tracking_ctx = replace(self._ctx, signal=tracking_signal)
+        else:
+            tracking_side = signal.action
+
+        if tracking_side == "sell":
             answer = QMessageBox.question(
                 self,
                 "Confirm short-position tracking",
                 "For NSE cash equities, a SELL signal may mean exiting shares you already own. "
-                "Starting a new SELL trade here is tracked as a short position. Continue only "
-                "if your chosen product/account supports that trade. No order will be placed.",
+                "Recording SELL here is treated as a short position. Continue only if your chosen "
+                "product/account supports that position. No order will be placed.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
-        default_entry = float(signal.entry or 0.0)
+        default_entry = float(signal.entry or 0.0) if not recording_existing_position else 0.0
         actual_entry, accepted = QInputDialog.getDouble(
             self,
             "Confirm manual entry",
-            f"Enter your ACTUAL fill price for {signal.action.upper()} {signal.symbol}. "
-            "This only records a trade you already executed:",
+            f"Enter your ACTUAL fill price for {tracking_side.upper()} {signal.symbol}. "
+            "This only records a position you already executed yourself:",
             default_entry,
             0.0,
             1_000_000_000_000.0,
@@ -424,7 +499,7 @@ class OverlayWindow(QWidget):
         )
         if not accepted:
             return
-        guessed_quantity = getattr(signal, "quantity", None)
+        guessed_quantity = getattr(signal, "quantity", None) if not recording_existing_position else None
         quantity_default = max(0.0001, float(guessed_quantity)) if guessed_quantity else 1.0
         if signal.market == "US":
             quantity, accepted = QInputDialog.getDouble(
@@ -449,15 +524,20 @@ class OverlayWindow(QWidget):
         if not accepted:
             return
         try:
-            self._manual_tracker.open_trade(self._ctx, actual_entry, quantity)
+            self._manual_tracker.open_trade(tracking_ctx, actual_entry, quantity)
         except ManualTradeError as exc:
             self.show_error(str(exc))
             self._refresh_trade_controls()
             return
         self._refresh_trade_controls()
-        self.set_status(
-            "Entry recorded locally. No order was placed. Use Exit confirmed only after you close it."
-        )
+        if recording_existing_position:
+            self.set_status(
+                "Existing position recorded locally. TradingView is not synced; no order was placed."
+            )
+        else:
+            self.set_status(
+                "Entry recorded locally. No order was placed. Use Exit confirmed only after you close it."
+            )
 
     def record_manual_exit(self) -> None:
         """Ask for the actual user exit fill and append the closed trade to CSV."""
