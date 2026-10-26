@@ -184,7 +184,21 @@ def read_signal(
         # evidence from the chart. This is not independent verification of live data.
         data_age_seconds, freshness_verified = _market_data_freshness(cfg, signal)
 
-        # A WATCH is not an entry instruction. Do not let model-supplied levels
+        # The model is not given synchronized open-position state, so HOLD cannot
+        # mean "keep managing the user's position". Normalize it to a no-entry WATCH.
+        if signal.action == "hold":
+            model_reason = signal.reasoning.strip()
+            signal.action = "watch"
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.position_size_pct = signal.quantity = None
+            signal.reasoning = (
+                "WATCH: no fresh entry recommendation. The app does not know the user's "
+                "open-position state or synchronize TradingView positions."
+            )
+            if model_reason:
+                signal.reasoning += f" Model note: {model_reason}"
+
+        # WATCH is never an entry instruction. Do not let model-supplied levels
         # leak into the overlay, sizing, alerts, or trade journal.
         if signal.action == "watch":
             had_actionable_levels = any(
@@ -204,20 +218,6 @@ def read_signal(
                 signal.reasoning = "WATCH is non-actionable; actionable levels were suppressed."
                 if model_reason:
                     signal.reasoning += f" Model note: {model_reason}"
-        elif signal.action == "hold" and freshness_verified is not True:
-            # The vision-only pipeline cannot independently prove the candle age.
-            # Keep the HOLD label but remove price levels that could be mistaken
-            # for verified trade-management instructions.
-            model_reason = signal.reasoning.strip()
-            signal.entry = signal.stop_loss = signal.target = None
-            signal.position_size_pct = signal.quantity = None
-            signal.reasoning = (
-                "Chart freshness is unverified: no entry, stop, target or size is endorsed. "
-                "TradingView positions are not synchronized with this app."
-            )
-            if model_reason:
-                signal.reasoning += f" Model note (unverified): {model_reason}"
-
         safety_errors = validate_signal_safety(
             action=signal.action,
             market=signal.market,

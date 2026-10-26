@@ -459,7 +459,7 @@ def test_auto_mode_accepts_explicitly_identified_us_equity_when_freshness_is_ver
         "entry": 376.0,
         "stop_loss": 370.0,
         "target": 388.0,
-        "timeframe": "5m",
+        "timeframe": "15m",
         "reasoning": "Illustrative confirmed breakout",
         "market": "NASDAQ",
         "symbol": "NASDAQ:TSLA",
@@ -589,11 +589,11 @@ def test_hold_with_unverified_chart_freshness_suppresses_levels(monkeypatch) -> 
 
     assert result.ctx is not None
     safe = result.ctx.signal
-    assert safe.action == "hold"
+    assert safe.action == "watch"
     assert safe.entry is safe.stop_loss is safe.target is None
     assert safe.position_size_pct is safe.quantity is None
-    assert "freshness is unverified" in safe.reasoning.lower()
-    assert "TradingView positions are not synchronized" in safe.reasoning
+    assert "no fresh entry recommendation" in safe.reasoning.lower()
+    assert "TradingView positions" in safe.reasoning
 
 
 def test_watch_response_cannot_keep_actionable_levels(monkeypatch) -> None:
@@ -625,3 +625,32 @@ def test_watch_response_cannot_keep_actionable_levels(monkeypatch) -> None:
     assert safe.entry is safe.stop_loss is safe.target is None
     assert safe.position_size_pct is safe.quantity is None
     assert "WATCH is non-actionable" in safe.reasoning
+
+
+def test_five_minute_chart_cannot_emit_directional_signal(monkeypatch) -> None:
+    """A 5m chart is intentionally ineligible for the non-scalping strategy."""
+    monkeypatch.setattr(
+        "ai_trader.cli.grab_screen",
+        lambda cfg: Image.new("RGB", (32, 32), "black"),
+    )
+    _provide_verified_freshness_for_test(monkeypatch)
+    cfg = load_config()
+    cfg.market = "AUTO"
+    response = {
+        "action": "buy",
+        "confidence": 95,
+        "entry": 100.0,
+        "stop_loss": 98.0,
+        "target": 105.0,
+        "position_size_pct": 1.0,
+        "timeframe": "5m",
+        "reasoning": "Strong breakout.",
+        "market": "NASDAQ",
+        "symbol": "NASDAQ:AAPL",
+    }
+    result = read_signal(cfg, _DictStyleCapture(json.dumps(response)), SignalEngine())
+
+    assert result.ctx is not None
+    assert result.ctx.signal.action == "watch"
+    assert result.ctx.signal.entry is result.ctx.signal.stop_loss is result.ctx.signal.target is None
+    assert "NON-SCALPING TIMEFRAME" in result.ctx.signal.reasoning

@@ -70,6 +70,7 @@ def test_parse_coerces_model_number_formats() -> None:
           "entry": "₹24,583",
           "stop_loss": "24,000.50",
           "target": "$25,500",
+          "timeframe": "15m",
           "position_size_pct": "4.5%"
         }"""
     )
@@ -265,13 +266,14 @@ def test_parse_keeps_valid_sell_levels() -> None:
     assert signal.reasoning == "distribution"
 
 
-def test_parse_skips_check_when_levels_missing() -> None:
-    """No levels -> no structural verdict; a bare buy stays buy (levels absent
-    means the model could not see them; not an ordering error)."""
+def test_parse_downgrades_directional_signal_when_levels_missing() -> None:
+    """A new directional entry is not emitted without complete price levels."""
     signal = SignalEngine.parse(
-        '{"action":"buy","confidence":60,"entry":null,"stop_loss":null,"target":null}'
+        '{"action":"buy","confidence":60,"timeframe":"15m","entry":null,"stop_loss":null,"target":null}'
     )
-    assert signal.action == "buy"
+    assert signal.action == "watch"
+    assert signal.entry is signal.stop_loss is signal.target is None
+    assert "[INCOMPLETE SETUP" in signal.reasoning
 
 
 @pytest.mark.parametrize(
@@ -309,6 +311,44 @@ def test_parse_downgrades_inadequate_reward_risk_to_watch(
     assert "minimum 1.50:1" in signal.reasoning
     assert "original entry" in signal.reasoning
 
+
+
+@pytest.mark.parametrize("timeframe", ["1m", "3m", "5m", "1d", "1w", "", "unknown"])
+def test_parse_downgrades_scalping_or_non_intraday_timeframes_to_watch(timeframe: str) -> None:
+    signal = SignalEngine.parse(json.dumps({
+        "action": "sell",
+        "confidence": 85,
+        "entry": 100.0,
+        "stop_loss": 103.0,
+        "target": 95.0,
+        "position_size_pct": 1.0,
+        "timeframe": timeframe,
+        "reasoning": "Illustrative short setup.",
+        "market": "US",
+        "symbol": "AAPL",
+    }))
+    assert signal.action == "watch"
+    assert signal.entry is signal.stop_loss is signal.target is None
+    assert signal.position_size_pct is signal.quantity is None
+    assert "NON-SCALPING TIMEFRAME" in signal.reasoning
+
+
+@pytest.mark.parametrize("timeframe", ["15m", "30m", "45m", "1h", "60m"])
+def test_parse_accepts_non_scalping_intraday_timeframes(timeframe: str) -> None:
+    signal = SignalEngine.parse(json.dumps({
+        "action": "buy",
+        "confidence": 80,
+        "entry": 100.0,
+        "stop_loss": 98.0,
+        "target": 104.0,
+        "timeframe": timeframe,
+        "reasoning": "Pullback in a clear intraday uptrend.",
+        "market": "US",
+        "symbol": "AAPL",
+    }))
+    assert signal.action == "buy"
+    assert signal.entry == 100.0
+    assert signal.target == 104.0
 
 def test_parse_keeps_setup_at_minimum_reward_risk_ratio() -> None:
     # Reward 1.5, risk 1.0 => exactly the configured 1.5:1 threshold.
@@ -386,7 +426,7 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "Never invent a price" in prompt
     assert 'return "watch" or "hold"' in prompt
     assert "not a probability of profit" in prompt
-    assert "short intraday trades only" in prompt
+    assert "NON-SCALPING intraday long/short trades" in prompt
     assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
     assert "outlook_direction" in prompt
     assert "WATCH can coexist with a bullish/bearish outlook" in prompt
@@ -407,7 +447,7 @@ def test_prompt_includes_detailed_chart_reading_checklist() -> None:
     assert "Never invent a price" in prompt
     assert "Do not claim a candle has closed" in prompt
     assert "reasoning" in prompt
-    assert "at least 1.5 times the entry-to-stop distance" in prompt
+    assert "at least 1.5:1 potential reward/risk" in prompt
 
 
 def test_auto_market_prompt_contains_indian_and_us_guidance() -> None:
@@ -461,13 +501,13 @@ def test_parse_preserves_outlook_independently_of_watch_action() -> None:
         "action": "watch",
         "confidence": 45,
         "outlook_direction": "downtrend",
-        "outlook_horizon": "next 3-5 candles",
+        "outlook_horizon": "next 4-8 candles on 15m",
         "outlook_evidence": "68%",
         "outlook_reasoning": "Lower highs and support break favor bearish continuation, but a bounce remains possible.",
     }))
     assert signal.action == "watch"
     assert signal.outlook_direction == "bearish"
-    assert signal.outlook_horizon == "next 3-5 candles"
+    assert signal.outlook_horizon == "next 4-8 candles on 15m"
     assert signal.outlook_evidence == 68.0
     assert "support break" in signal.outlook_reasoning
 

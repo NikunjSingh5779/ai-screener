@@ -6,8 +6,8 @@ monitor = 1
 full_screen = false
 
 [polling]
-interval_seconds = 15
-min_flip_hold_seconds = 60
+interval_seconds = 60
+min_flip_hold_seconds = 300
 
 [providers]
 # Strictly local; no mock or cloud fallback is enabled.

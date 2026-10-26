@@ -21,8 +21,8 @@ DEFAULTS: dict = {
         "full_screen": False,
     },
     "polling": {
-        "interval_seconds": 10,
-        "min_flip_hold_seconds": 60,
+        "interval_seconds": 60,
+        "min_flip_hold_seconds": 300,
     },
     "providers": {
         "chain": ["polystrata"],
