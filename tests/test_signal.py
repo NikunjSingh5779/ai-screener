@@ -424,7 +424,7 @@ def test_parse_coerces_price_with_currency_suffix_or_tilde() -> None:
 def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     prompt = SignalEngine().build_prompt()
     assert "Never invent a price" in prompt
-    assert 'return "watch" or "hold"' in prompt
+    assert 'If any requirement fails, return "watch"' in prompt
     assert "not a probability of profit" in prompt
     assert "NON-SCALPING intraday long/short trades" in prompt
     assert "Daily, weekly, unknown, or unreadable timeframes" in prompt
