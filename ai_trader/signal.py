@@ -377,9 +377,9 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
 
     BUY/SELL levels must have the correct order and at least
     MIN_REWARD_RISK_RATIO potential reward for each unit of price risk.
-    Structurally invalid levels are downgraded to hold. Suggestions below
-    the reward/risk threshold are downgraded to watch and their actionable
-    levels are cleared; the original values and ratio remain in the reasoning.
+    Structurally invalid levels are downgraded to watch and all actionable
+    fields are cleared. Suggestions below the reward/risk threshold are also
+    downgraded to watch; the original values and ratio remain in the reasoning.
     This is a screening heuristic, not a profitability guarantee.
     """
     action = signal.action
@@ -396,10 +396,15 @@ def _enforce_structure(signal: TradingSignal) -> TradingSignal:
             f"original action {action}, entry {entry}, stop_loss {stop}, target {target} "
             f"({marker})"
         )
-        signal.action = "hold"
+        # A malformed BUY/SELL is not a HOLD instruction: HOLD can imply
+        # maintaining an existing position. Fail closed to WATCH instead.
+        signal.action = "watch"
+        signal.entry = signal.stop_loss = signal.target = None
+        signal.position_size_pct = None
+        signal.quantity = None
         signal.reasoning = f"{marker} {note}; {signal.reasoning}".strip()
         logger.warning(
-            "structurally invalid %s signal downgraded to hold: entry=%s stop=%s target=%s",
+            "structurally invalid %s signal downgraded to watch; levels cleared: entry=%s stop=%s target=%s",
             action, entry, stop, target,
         )
         return signal
