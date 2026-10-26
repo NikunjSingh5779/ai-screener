@@ -183,6 +183,41 @@ def read_signal(
         # No market-data API is used: directional calls require explicit visual freshness
         # evidence from the chart. This is not independent verification of live data.
         data_age_seconds, freshness_verified = _market_data_freshness(cfg, signal)
+
+        # A WATCH is not an entry instruction. Do not let model-supplied levels
+        # leak into the overlay, sizing, alerts, or trade journal.
+        if signal.action == "watch":
+            had_actionable_levels = any(
+                value is not None
+                for value in (
+                    signal.entry,
+                    signal.stop_loss,
+                    signal.target,
+                    signal.position_size_pct,
+                    signal.quantity,
+                )
+            )
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.position_size_pct = signal.quantity = None
+            if had_actionable_levels:
+                model_reason = signal.reasoning.strip()
+                signal.reasoning = "WATCH is non-actionable; actionable levels were suppressed."
+                if model_reason:
+                    signal.reasoning += f" Model note: {model_reason}"
+        elif signal.action == "hold" and freshness_verified is not True:
+            # The vision-only pipeline cannot independently prove the candle age.
+            # Keep the HOLD label but remove price levels that could be mistaken
+            # for verified trade-management instructions.
+            model_reason = signal.reasoning.strip()
+            signal.entry = signal.stop_loss = signal.target = None
+            signal.position_size_pct = signal.quantity = None
+            signal.reasoning = (
+                "Chart freshness is unverified: no entry, stop, target or size is endorsed. "
+                "TradingView positions are not synchronized with this app."
+            )
+            if model_reason:
+                signal.reasoning += f" Model note (unverified): {model_reason}"
+
         safety_errors = validate_signal_safety(
             action=signal.action,
             market=signal.market,

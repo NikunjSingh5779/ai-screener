@@ -320,3 +320,57 @@ def test_manual_trade_controls_follow_persisted_trade_state(tmp_path) -> None:
     assert "ACTIVE MANUAL POSITION" in win.snapshot()["trade_status"]
     win.close()
     app.processEvents()
+
+
+
+def test_overlay_can_track_existing_position_when_model_says_hold(tmp_path, monkeypatch) -> None:
+    """A HOLD result must still let the user record an already-open paper position."""
+    OverlayWindow, app = _offscreen_window()
+    from PyQt6 import QtWidgets
+    from ai_trader.cli import ReadResult
+    from ai_trader.trade_tracker import ManualTradeTracker
+
+    ctx = _ctx(
+        action="hold",
+        confidence=60.0,
+        entry=346.74,
+        stop_loss=348.04,
+        target=345.74,
+        market="US",
+        symbol="AAPL",
+        model="polystrata/qwen3.6-35b-a3b-ud-q4_k_xl",
+    )
+    tracker = ManualTradeTracker(
+        tmp_path / "Manual_Trade_State.json",
+        tmp_path / "Manual_Trade_Journal.csv",
+    )
+    win = OverlayWindow(manual_tracker=tracker)
+    win._on_signal(ReadResult(ctx=ctx, elapsed=0.1))
+
+    assert win._entered_button.text() == "Track open"
+    assert win._entered_button.isEnabled()
+
+    yes = QtWidgets.QMessageBox.StandardButton.Yes
+    monkeypatch.setattr("ai_trader.overlay_ui.QMessageBox.question", lambda *args, **kwargs: yes)
+    monkeypatch.setattr(
+        "ai_trader.overlay_ui.QInputDialog.getItem",
+        lambda *args, **kwargs: ("Short (SELL)", True),
+    )
+    double_answers = iter([(346.74, True), (0.99, True)])
+    monkeypatch.setattr(
+        "ai_trader.overlay_ui.QInputDialog.getDouble",
+        lambda *args, **kwargs: next(double_answers),
+    )
+
+    win.record_manual_entry()
+
+    active = tracker.active_trade
+    assert active is not None
+    assert active["side"] == "sell"
+    assert active["symbol"] == "AAPL"
+    assert active["actual_entry"] == 346.74
+    assert active["quantity"] == 0.99
+    assert active["stop_loss"] is None and active["target"] is None
+    assert "ACTIVE MANUAL POSITION" in win.snapshot()["trade_status"]
+    win.close()
+    app.processEvents()
