@@ -105,6 +105,8 @@ class SignalView:
     currency: str = ""
     is_high_confidence: bool = False
     stale_after: float = DEFAULT_STALE_AFTER
+    outlook_label: str = "OUTLOOK · UNCLEAR"
+    outlook_reasoning: str = ""
 
     def age_seconds(self, now: float | None = None) -> float:
         now = time.time() if now is None else now
@@ -132,6 +134,26 @@ class SignalView:
         )
         qty = format_qty(signal.quantity)
         is_directional = signal.action.lower() in ("buy", "sell")
+        outlook_names = {
+            "bullish": "BULLISH ↑",
+            "bearish": "BEARISH ↓",
+            "sideways": "SIDEWAYS ↔",
+            "unclear": "UNCLEAR",
+        }
+        outlook_direction = str(getattr(signal, "outlook_direction", "unclear") or "unclear").lower()
+        outlook_direction = outlook_direction if outlook_direction in outlook_names else "unclear"
+        outlook_horizon = truncate(str(getattr(signal, "outlook_horizon", "") or "").strip(), 36)
+        outlook_evidence = float(getattr(signal, "outlook_evidence", 0.0) or 0.0)
+        outlook_parts = ["OUTLOOK", outlook_names[outlook_direction]]
+        if outlook_horizon:
+            outlook_parts.append(outlook_horizon)
+        if outlook_evidence > 0:
+            outlook_parts.append(f"evidence {outlook_evidence:.0f}/100")
+        outlook_label = " · ".join(outlook_parts)
+        outlook_reasoning = truncate(
+            str(getattr(signal, "outlook_reasoning", "") or "No reliable chart-based outlook available.").strip(),
+            120,
+        )
         return cls(
             action=signal.action.lower(),
             action_label=style["label"],
@@ -154,4 +176,6 @@ class SignalView:
             reasoning=truncate(signal.reasoning),
             provider_model=ctx.model or MISSING,
             captured_at=ctx.captured_at,
+            outlook_label=outlook_label,
+            outlook_reasoning=outlook_reasoning,
         )
