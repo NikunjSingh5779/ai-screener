@@ -33,25 +33,34 @@ You analyze chart screenshots for cautious, short intraday trades only. Return o
   "timeframe": "visible timeframe or empty",
   "reasoning": "one short sentence",
   "market": "NSE" | "BSE" | "US" | "",
-  "symbol": "visible ticker or empty"
+  "symbol": "visible ticker or empty",
+  "chart_status": "live" | "delayed" | "unknown",
+  "timestamp_visible": true | false,
+  "latest_candle_time": "visible timestamp or empty",
+  "outlook_direction": "bullish" | "bearish" | "sideways" | "unclear",
+  "outlook_horizon": "next 3-5 candles on visible timeframe or empty",
+  "outlook_evidence": 0-100,
+  "outlook_reasoning": "one concise sentence with evidence and uncertainty"
 }}
 Chart-reading procedure (inspect the full captured chart before deciding):
-1. Identify the visible ticker/exchange, timeframe, latest price label, price scale and time axis. Report only what can actually be read.
+1. Identify the visible ticker/exchange, timeframe, latest price label, price scale and time axis. Report only what can actually be read. Set timestamp_visible=true only when a readable timestamp for the latest candle is actually visible; copy it to latest_candle_time. Set chart_status="live" only if the screenshot visibly shows an explicit real-time/live indicator and a readable latest-candle timestamp; use "delayed" for an explicit delay marker, otherwise "unknown". Never infer live status from screenshot capture time.
 2. Examine recent candles and visible swing highs/lows. Describe the current structure as trend, range/chop, breakout, retest, rejection or reversal only when the candles support it.
 3. Check visible support/resistance, trend lines, volume and indicators. Use an indicator only when it is visibly present and legible; never assume an indicator exists or invent its value. Prefer agreement between price action and the indicators that are actually shown.
 4. Judge whether the latest move has follow-through or is still forming. Do not claim a candle has closed or a breakout is confirmed unless the screenshot supports that conclusion.
 5. Locate a plausible entry, invalidation/stop and target using readable prices and visible structure. Do not fabricate exact levels from pixel position when the price scale is unreadable. Leave levels null if reliable prices cannot be established.
 6. Check whether price is too extended, choppy, near an opposing level, or has insufficient room to the target. Require at least 1.5:1 potential reward/risk after accounting for the stop distance.
+7. Separately forecast the qualitative direction for the next 3-5 candles on the visible timeframe. This is an outlook, not an entry instruction or guaranteed price prediction. Fill outlook_direction, outlook_horizon, outlook_evidence, and outlook_reasoning even when action is "watch" if the current chart provides enough evidence. Use "unclear" and evidence 0 when the screenshot is unreadable, chart status is delayed/unknown, the timestamp is not legible, or signals conflict. Do not invent a future price.
 Decision rules:
 - If the screenshot is not a trading chart, return "watch".
 - This screener supports listed equities only. If the visible instrument is a cryptocurrency pair (for example BTCUSD, BTCUSDT or ETHUSD) or a crypto exchange, return "watch" with null actionable levels.
 - Never invent a price, symbol, timeframe, exchange, indicator, volume reading, candle state or pattern.
-- If the ticker/exchange, timeframe, price scale or setup is unclear, return "watch" or "hold", with null actionable levels.
+- If the ticker/exchange, timeframe, price scale, setup, or visual freshness evidence is unclear, return "watch" or "hold", with null actionable levels. For BUY/SELL, require chart_status="live", timestamp_visible=true, and a readable latest_candle_time. A screenshot alone cannot prove market-data freshness; report only visible evidence.
 - Intraday only: use a clearly visible 5m/15m or other intraday timeframe. For daily/weekly or unknown timeframe, return "watch".
 - Buy only with visible bullish setup evidence and target > entry > stop_loss. Sell only with visible bearish setup evidence and target < entry < stop_loss. Otherwise return "watch" and null levels.
 - Only suggest buy/sell when the visible target offers at least 1.5 times the entry-to-stop distance; otherwise return "watch" and null levels.
-- "confidence" measures visual legibility and strength of chart evidence, not a probability of profit. Do not inflate it to force a trade.
-- Keep "reasoning" to one concise sentence naming the main visible evidence and the key uncertainty. Do not provide a long essay.
+- "confidence" measures visual legibility/setup strength for the trade action, not a probability of profit. Do not inflate it to force a trade.
+- "outlook_direction" is independent of "action": WATCH can coexist with a bullish/bearish outlook when no safe entry exists. "outlook_evidence" is a 0-100 qualitative evidence-strength score, not a calibrated probability or chance of profit.
+- Keep "reasoning" and "outlook_reasoning" to one concise sentence each. State the visible reason and main uncertainty; do not provide a long essay.
 - Infer market only from a visible ticker/exchange label. NSE/BSE use INR; US equities use USD. If uncertain, leave market and symbol empty.
 Market hint: {market}. Symbol hint: {symbol_hint}. Market notes: {market_notes}"""
 
@@ -96,6 +105,13 @@ class TradingSignal(BaseModel):
     reasoning: str = Field(default="", description="brief model rationale")
     market: str = Field(default="", description="NSE | BSE | US")
     symbol: str = Field(default="", description="ticker inferred from the chart")
+    chart_status: str = Field(default="unknown", description="visual status: live | delayed | unknown; based only on explicit visible evidence")
+    timestamp_visible: bool = Field(default=False, description="true only when latest candle timestamp is legible in the screenshot")
+    latest_candle_time: str = Field(default="", description="latest candle timestamp transcribed from visible chart; empty if unreadable")
+    outlook_direction: str = Field(default="unclear", description="qualitative outlook: bullish | bearish | sideways | unclear; not a trade action")
+    outlook_horizon: str = Field(default="", description="short horizon, e.g. next 3-5 candles on the visible timeframe")
+    outlook_evidence: float = Field(default=0.0, ge=0, le=100, description="0-100 chart-evidence strength; not a probability")
+    outlook_reasoning: str = Field(default="", description="brief visual evidence and uncertainty for the outlook")
 
     @field_validator("action", mode="before")
     @classmethod
@@ -131,16 +147,62 @@ class TradingSignal(BaseModel):
                 return 50.0
         return v
 
+    @field_validator("outlook_evidence", mode="before")
+    @classmethod
+    def _coerce_outlook_evidence(cls, v: object) -> object:
+        if v is None:
+            return 0.0
+        if isinstance(v, str):
+            cleaned = v.strip().rstrip("%").strip()
+            try:
+                return float(cleaned)
+            except ValueError:
+                return 0.0
+        return v
+
+    @field_validator("outlook_direction", mode="before")
+    @classmethod
+    def _normalize_outlook_direction(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return "unclear"
+        direction = v.strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "up": "bullish", "upward": "bullish", "uptrend": "bullish",
+            "down": "bearish", "downward": "bearish", "downtrend": "bearish",
+            "rangebound": "sideways", "ranging": "sideways", "neutral": "sideways",
+            "mixed": "unclear", "unknown": "unclear",
+        }
+        direction = aliases.get(direction, direction)
+        return direction if direction in {"bullish", "bearish", "sideways", "unclear"} else "unclear"
+
     @field_validator("entry", "stop_loss", "target", "position_size_pct", mode="before")
     @classmethod
     def _coerce_prices(cls, v: object) -> object:
         return _coerce_price(v)
 
-    @field_validator("timeframe", "reasoning", "market", "symbol", "currency", mode="before")
+    @field_validator("timeframe", "reasoning", "market", "symbol", "currency", "chart_status", "latest_candle_time", "outlook_horizon", "outlook_reasoning", mode="before")
     @classmethod
     def _coerce_none_to_str(cls, v: object) -> object:
         """Allow model responses to use null for optional descriptive fields."""
         return "" if v is None else v
+
+    @field_validator("timestamp_visible", mode="before")
+    @classmethod
+    def _coerce_timestamp_visible(cls, v: object) -> object:
+        """Accept only explicit boolean-like values; unknown text is false."""
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            return v.strip().lower() in {"true", "yes", "1"}
+        return False
+
+    @field_validator("chart_status", mode="before")
+    @classmethod
+    def _normalize_chart_status(cls, v: object) -> object:
+        if not isinstance(v, str):
+            return "unknown"
+        status = v.strip().lower()
+        return status if status in {"live", "delayed", "unknown"} else "unknown"
 
     @field_validator("market", mode="before")
     @classmethod

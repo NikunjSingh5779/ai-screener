@@ -23,6 +23,12 @@ def _ctx(**overrides: object) -> SignalContext:
         reasoning=overrides.get("reasoning", "breakout above resistance on volume"),  # type: ignore[arg-type]
         market=overrides.get("market", "NSE"),  # type: ignore[arg-type]
         symbol=overrides.get("symbol", "RELIANCE"),  # type: ignore[arg-type]
+        outlook_direction=overrides.get("outlook_direction", "bearish"),  # type: ignore[arg-type]
+        outlook_horizon=overrides.get("outlook_horizon", "next 3-5 candles"),  # type: ignore[arg-type]
+        outlook_evidence=float(overrides.get("outlook_evidence", 68.0)),  # type: ignore[arg-type]
+        outlook_reasoning=overrides.get(
+            "outlook_reasoning", "Lower highs and support break favor bearish continuation; bounce risk remains."
+        ),  # type: ignore[arg-type]
     )
     return SignalContext(
         symbol=signal.symbol,
@@ -93,6 +99,10 @@ def test_signal_view_from_context() -> None:
     assert view.target == "252"
     assert view.size == "4.5%"
     assert view.timeframe == "15m"
+    assert "BEARISH" in view.outlook_label
+    assert "next 3-5 candles" in view.outlook_label
+    assert "evidence 68/100" in view.outlook_label
+    assert "support break" in view.outlook_reasoning
     assert view.provider_model == "google/gemma-4-31b-it:free"
 
 
@@ -162,6 +172,8 @@ def test_overlay_window_renders_signal_offscreen() -> None:
     assert snapshot["stop_loss"] == "SL 240.1"
     assert snapshot["target"] == "TARGET 252"
     assert snapshot["size"] == "SIZE 4.5%"
+    assert "BEARISH" in snapshot["outlook"]
+    assert "support break" in snapshot["outlook_reasoning"]
     assert "gemma" in snapshot["footer"]
     win.close()
     app.processEvents()

@@ -189,6 +189,16 @@ class OverlayWindow(QWidget):
         self._timeframe.setStyleSheet(f"color:{DIM}; {FONT_SMALL}")
         layout.addWidget(self._timeframe)
 
+        self._outlook = QLabel("OUTLOOK · UNCLEAR")
+        self._outlook.setStyleSheet(f"color:{HIGH_CONFIDENCE_COLOR}; {FONT_SMALL} font-weight:700;")
+        self._outlook.setWordWrap(True)
+        layout.addWidget(self._outlook)
+
+        self._outlook_reasoning = QLabel("")
+        self._outlook_reasoning.setStyleSheet(f"color:{DIM}; {FONT_SMALL}")
+        self._outlook_reasoning.setWordWrap(True)
+        layout.addWidget(self._outlook_reasoning)
+
         self._reasoning = QLabel("")
         self._reasoning.setStyleSheet(f"color:{DIM}; {FONT_SMALL}")
         self._reasoning.setWordWrap(True)
@@ -258,6 +268,8 @@ class OverlayWindow(QWidget):
         self._size.setText(f"SIZE {view.size}")
         self._qty.setText(f"QTY {view.qty}")
         self._timeframe.setText(f"TF {view.timeframe}")
+        self._outlook.setText(view.outlook_label)
+        self._outlook_reasoning.setText(view.outlook_reasoning)
         self._reasoning.setText(view.reasoning)
         self.set_status("")
         self.show()
@@ -294,6 +306,8 @@ class OverlayWindow(QWidget):
             "size": self._size.text(),
             "qty": self._qty.text(),
             "timeframe": self._timeframe.text(),
+            "outlook": self._outlook.text(),
+            "outlook_reasoning": self._outlook_reasoning.text(),
             "reasoning": self._reasoning.text(),
             "footer": self._footer.text(),
             "status": self._status.text(),

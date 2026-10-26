@@ -104,14 +104,20 @@ class ReadResult:
 
 
 def _market_data_freshness(cfg, signal) -> tuple[float | None, bool | None]:
-    """Return trusted age/verification metadata for the signal's latest candle.
+    """Return a vision-only freshness assessment; never call a market-data API.
 
-    The current screenshot-only provider has no candle timestamp, so freshness
-    is explicitly unverified and directional suggestions fail closed. Do not use
-    screenshot capture time as a substitute. Implement this adapter only when a
-    trusted market-data source supplies timestamp-derived evidence.
+    The local vision model must report explicit visible live status and a readable
+    latest-candle timestamp. This is a visual claim, not independently verified
+    market data; screenshots can be frozen or delayed even when captured now.
     """
-    return None, False
+    del cfg
+    visible_time = str(getattr(signal, "latest_candle_time", "") or "").strip()
+    verified_visually = (
+        str(getattr(signal, "chart_status", "unknown") or "unknown").strip().lower() == "live"
+        and bool(getattr(signal, "timestamp_visible", False))
+        and bool(visible_time)
+    )
+    return None, verified_visually
 
 
 def read_signal(
@@ -174,8 +180,8 @@ def read_signal(
                 "Verify the visible chart symbol and capture region. " + signal.reasoning
             ).strip()
         # Model output is not the safety authority. Apply deterministic checks before rendering.
-        # The screenshot-only pipeline has no trusted candle timestamp today.
-        # Fail closed until a market-data adapter supplies timestamp-derived evidence.
+        # No market-data API is used: directional calls require explicit visual freshness
+        # evidence from the chart. This is not independent verification of live data.
         data_age_seconds, freshness_verified = _market_data_freshness(cfg, signal)
         safety_errors = validate_signal_safety(
             action=signal.action,
