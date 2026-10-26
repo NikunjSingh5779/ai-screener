@@ -382,6 +382,7 @@ def test_parse_downgrade_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
               "entry": 100,
               "stop_loss": 105,
               "target": 120,
+              "timeframe": "15m",
               "reasoning": "short the breakdown"
             }"""
         )
@@ -391,9 +392,15 @@ def test_parse_downgrade_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
 
 def test_parse_coerces_action_case_and_synonyms() -> None:
     """Action case variations and model synonyms normalize to valid actions."""
-    assert SignalEngine.parse('{"action":"BUY","confidence":50}').action == "buy"
-    assert SignalEngine.parse('{"action":" Strong Buy ","confidence":50}').action == "buy"
-    assert SignalEngine.parse('{"action":"Sell","confidence":50}').action == "sell"
+    assert SignalEngine.parse(
+        '{"action":"BUY","confidence":50,"timeframe":"15m","entry":100,"stop_loss":98,"target":104}'
+    ).action == "buy"
+    assert SignalEngine.parse(
+        '{"action":" Strong Buy ","confidence":50,"timeframe":"15m","entry":100,"stop_loss":98,"target":104}'
+    ).action == "buy"
+    assert SignalEngine.parse(
+        '{"action":"Sell","confidence":50,"timeframe":"15m","entry":100,"stop_loss":103,"target":95}'
+    ).action == "sell"
     assert SignalEngine.parse('{"action":"neutral","confidence":50}').action == "hold"
     assert SignalEngine.parse('{"action":"wait","confidence":50}').action == "watch"
 
@@ -429,7 +436,7 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert "NON-SCALPING intraday long/short trades" in prompt
     assert "Daily, weekly, unknown, or unreadable timeframes" in prompt
     assert "outlook_direction" in prompt
-    assert "WATCH can coexist with a bullish/bearish outlook" in prompt
+    assert "WATCH can accompany a bearish/bullish outlook" in prompt
 
 
 def test_prompt_explicitly_rejects_crypto_pairs() -> None:

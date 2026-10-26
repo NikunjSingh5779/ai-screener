@@ -31,7 +31,7 @@ def _payload(**overrides) -> dict:
         "stop_loss": 98.0,
         "target": 104.0,
         "position_size_pct": 2.0,
-        "timeframe": "5m",
+        "timeframe": "15m",
         "reasoning": "Synthetic test setup.",
         "market": "NASDAQ",
         "symbol": "NVDA",
