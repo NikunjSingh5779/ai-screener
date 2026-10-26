@@ -91,7 +91,7 @@ def test_parse_replaces_invalid_model_number_with_none() -> None:
 
 def test_parse_allows_null_optional_text_fields() -> None:
     signal = SignalEngine.parse(
-        '{"action":"buy","confidence":70,"timeframe":null,'
+        '{"action":"hold","confidence":70,"timeframe":null,'
         '"reasoning":null,"market":null,"symbol":null}'
     )
     assert signal.timeframe == ""
@@ -427,7 +427,7 @@ def test_prompt_requires_evidence_and_watch_for_ambiguous_chart() -> None:
     assert 'return "watch" or "hold"' in prompt
     assert "not a probability of profit" in prompt
     assert "NON-SCALPING intraday long/short trades" in prompt
-    assert "For daily/weekly or unknown timeframe, return \"watch\"" in prompt
+    assert "Daily, weekly, unknown, or unreadable timeframes" in prompt
     assert "outlook_direction" in prompt
     assert "WATCH can coexist with a bullish/bearish outlook" in prompt
 
